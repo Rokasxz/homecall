@@ -10,6 +10,7 @@ Never merges. Your own checkout is not touched (it uses a temporary git worktree
 """
 import argparse
 import json
+import os
 import pathlib
 import shutil
 import subprocess
@@ -23,9 +24,22 @@ REPO = status.REPO
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
-def sh(cmd: list[str], cwd=None, timeout=600) -> tuple[int, str]:
-    r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+def sh(cmd: list[str], cwd=None, timeout=600, env=None) -> tuple[int, str]:
+    r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env)
     return r.returncode, (r.stdout + r.stderr)
+
+
+def test_env(tmp: pathlib.Path) -> dict:
+    """Environment for running someone's branch on this laptop: echo brain, no keys,
+    and a dummy `osascript`, so a test can't play music or click things on this Mac."""
+    fake_bin = tmp / "bin"
+    fake_bin.mkdir()
+    (fake_bin / "osascript").write_text("#!/bin/sh\necho 'osascript is off during the coordinator check' >&2\nexit 1\n")
+    (fake_bin / "osascript").chmod(0o755)
+    env = {k: v for k, v in os.environ.items()
+           if not any(s in k for s in ("KEY", "TOKEN", "SECRET", "PASSWORD"))}
+    env.update(PATH=f"{fake_bin}{os.pathsep}{os.environ.get('PATH', '')}", HOMECALL_BRAIN="echo")
+    return env
 
 
 def tail(text: str, n: int = 25) -> str:
@@ -76,10 +90,11 @@ def main() -> None:
             sh(["uv", "venv", "-q", str(wt / ".venv")], cwd=wt)
             sh(["uv", "pip", "install", "-q", "--python", str(wt / ".venv/bin/python"), "-r", "requirements.txt"], cwd=wt)
             python = str(wt / ".venv/bin/python")
-        c_code, c_out = sh([python, "check.py"], cwd=wt)
+        env = test_env(tmp)
+        c_code, c_out = sh([python, "check.py"], cwd=wt, env=env)
         if c_code:  # one retry: someone restarting `pc.server` on this laptop can kill the test server mid-call
-            c_code, c_out = sh([python, "check.py"], cwd=wt)
-        t_code, t_out = sh([python, "-m", "pytest", "tests", "-q", "-p", "no:cacheprovider"], cwd=wt)
+            c_code, c_out = sh([python, "check.py"], cwd=wt, env=env)
+        t_code, t_out = sh([python, "-m", "pytest", "tests", "-q", "-p", "no:cacheprovider"], cwd=wt, env=env)
     finally:
         sh(["git", "worktree", "remove", "--force", str(wt)], cwd=ROOT)
         shutil.rmtree(tmp, ignore_errors=True)
