@@ -14,10 +14,11 @@ automatically, so the format matters):
 """
 from pc.actions.basic import TOOLS as _basic_tools
 from pc.actions.media import TOOLS as _media_tools
+from pc.actions.pointer import TOOLS as _pointer_tools
 from pc.actions.power import TOOLS as _power_tools
 
 # Every tool the Brain can use, from all the files in this folder.
-TOOLS = _basic_tools + _media_tools + _power_tools
+TOOLS = _basic_tools + _media_tools + _power_tools + _pointer_tools
 
 # The Brain sets this before it runs the tools, so tools can talk to the phone
 # (progress text, confirmations, sending files). See pc/session.py.
