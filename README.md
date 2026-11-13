@@ -9,30 +9,30 @@ sent back. A 2-day hackathon project.
 - Teammates start here: TEAMMATE-GUIDE.md (login, rules, prompts, testing)
 - How we work together: TEAM-SETUP.md, PROMPTS.md
 
-## Connect your own computer (one command)
+## Connect your own computer (double-click)
 
 Call YOUR computer from YOUR phone, from anywhere (the phone doesn't need the same Wi-Fi).
-Once, install: the steps below (`pip install -r requirements.txt` in the venv) and
-`cloudflared` (Mac `brew install cloudflared`, Windows `winget install Cloudflare.cloudflared`).
-Once, accept the GitHub invite to the private team-keys repo (Claude = the AI, ElevenLabs =
-voice): https://github.com/Rokasxz/homecall-keys/invitations
 
-Then every time:
-```
-git pull origin main
-python start.py
-```
-- It never asks for keys: it copies them from that private repo into your `.env` with your
-  GitHub login (the same one you push with). No keys yet? It says so; accept the invite.
-- It prints the phone address and a 6-digit code. Open the address on your phone (Safari or
-  Chrome, not inside Instagram/Discord), type the code, and choose **Voice call** (talk like a
-  phone call) or **Type** (write, see the live screen). The address and code change every start.
-- Keep the window open; Ctrl+C stops everything. Every phone visit is written to
+1. Once: accept the GitHub invite to the private team-keys repo (Claude = the AI,
+   ElevenLabs = voice): https://github.com/Rokasxz/homecall-keys/invitations
+2. Double-click **`HomeCall.command`** (Mac) or **`HomeCall.bat`** (Windows) in the homecall folder.
+   The first time it sets everything up by itself: Python packages, `cloudflared`, the team keys.
+   (Same thing by hand: `python start.py`.)
+3. Mac only, the first time: it asks macOS for every permission HomeCall needs (see the screen,
+   control mouse and keyboard, open Desktop/Documents/Downloads, use Finder). Click OK / Allow
+   on each window, and switch ON "Terminal" where System Settings opens. Then nothing pops up
+   during a call. If macOS says "Quit & Reopen", click it and double-click HomeCall again.
+4. The **PC window** opens in your browser with a QR code. Scan it with your phone's camera,
+   then choose **Voice call** or **Type**. (Or open the address and type the 6-digit code.)
+   The address and code change every start. The PC window only opens on this computer.
+
+- Keep the HomeCall window open; close it (or Ctrl+C) to stop. Every phone visit is written to
   `homecall.log` (private: never post it). Found a bug? GitHub -> Issues -> New issue -> Bug.
 - The Claude key costs the team a cent or two per request: test, don't leave it chatting.
   Other option for the AI: `HOMECALL_BRAIN=max` in `.env`, `pip install claude-agent-sdk` and
   `claude auth login` once (your own Claude subscription).
-- If your Wi-Fi blocks the tunnel (start.py says so), connect the computer to your phone's hotspot.
+- If your Wi-Fi blocks the tunnel (it says so), connect the computer to your phone's hotspot.
+- Check the permissions any time: `python -m pc.permissions`.
 
 ## Run it (on the PC)
 

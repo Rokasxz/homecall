@@ -14,6 +14,15 @@ $("code").addEventListener("keydown", (e) => { if (e.key === "Enter") $("callBtn
 const CODE_KEY = "homecallCode";
 function rememberCode(code) { try { sessionStorage.setItem(CODE_KEY, code); } catch (_) {} }
 try { const saved = sessionStorage.getItem(CODE_KEY); if (saved) $("code").value = saved; } catch (_) {}
+
+// Scanned the QR code on the PC? It opens this page with "#code=123456" (after the "#",
+// so it never goes to any server). Fill it in and take it out of the address bar.
+const fromQr = location.hash.match(/code=(\d{6})/);
+if (fromQr) {
+  $("code").value = fromQr[1];
+  rememberCode(fromQr[1]);
+  history.replaceState(null, "", location.pathname);
+}
 $("voiceBtn").onclick = () => {
   const code = $("code").value.trim();
   if (code.length !== 6) { $("connectError").textContent = "The code has 6 digits."; return; }
