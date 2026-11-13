@@ -114,3 +114,35 @@ def test_open_file_does_not_run_programs_without_asking(desktop, name):
         target.write_text("echo pwned")
     basic.open_file(str(target))
     assert launched == [], "a program was launched with no Yes/No on the phone"
+
+
+@pytest.mark.xfail(strict=True, reason="Hands: open_app starts any program given by full path (TASKS.md)")
+@pytest.mark.parametrize("path", ["~/Downloads/Evil.app", "/tmp/evil.sh", "C:\\Users\\me\\Downloads\\evil.exe"])
+def test_open_app_refuses_program_paths(monkeypatch, path):
+    """open_app is for app NAMES. A full path would bypass the 4-folder rule and run anything."""
+    launched = []
+    monkeypatch.setattr(basic.subprocess, "Popen", lambda *a, **k: launched.append(a))
+    monkeypatch.setattr(basic.subprocess, "run",
+                        lambda *a, **k: launched.append(a) or type("R", (), {"returncode": 0})())
+    monkeypatch.setattr(basic.shutil, "which", lambda name, *a, **k: name)  # "the file exists"
+    monkeypatch.setattr(actions, "current_session", None)
+    if hasattr(basic, "_windows_apps"):
+        monkeypatch.setattr(basic, "_windows_apps", lambda: {})
+    out = basic.open_app(path)
+    assert launched == [] and out.startswith("Error"), f"launched {launched}: {out}"
+
+
+@pytest.mark.skipif(not hasattr(basic, "read_file_text"), reason="read_file_text not in main yet")
+def test_read_file_text_refuses_symlink_out(tmp_path, monkeypatch):
+    d = tmp_path / "Desktop"
+    d.mkdir()
+    (tmp_path / "secret.txt").write_text("top secret")
+    try:
+        (d / "link.txt").symlink_to(tmp_path / "secret.txt")
+    except OSError:
+        pytest.skip("can't make symlinks here")
+    monkeypatch.setattr(basic, "HOME", tmp_path)
+    monkeypatch.setattr(basic, "ALLOWED_ROOTS", [d])
+    monkeypatch.setattr(actions, "current_session", None)
+    out = basic.read_file_text(str(d / "link.txt"))
+    assert "top secret" not in out

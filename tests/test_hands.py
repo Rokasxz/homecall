@@ -80,8 +80,15 @@ def launched(monkeypatch):
         def __init__(self, *args, **kwargs):
             calls.append(args[0] if args else kwargs.get("args"))
 
+    def fake_run(*args, **kwargs):
+        calls.append(args[0] if args else kwargs.get("args"))
+        return types.SimpleNamespace(returncode=0, stdout=b"" if not kwargs.get("text") else "", stderr="")
+
     monkeypatch.setattr(basic.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(basic.subprocess, "run", fake_run)  # Hands' open_app on Mac uses run()
     monkeypatch.setattr(os, "startfile", lambda p: calls.append(p), raising=False)
+    if hasattr(basic, "_windows_apps"):  # Hands' Windows Start-menu lookup
+        monkeypatch.setattr(basic, "_windows_apps", lambda: {"Spotify": "SpotifyAB.Spotify!App"})
     return calls
 
 
@@ -237,6 +244,7 @@ def test_delete_refuses_outside_without_asking(home, session):
 def test_open_app_launches_and_shows_status(session, launched):
     out = basic.open_app("Spotify")
     assert "Spotify" in out
+    assert not out.startswith("Error"), out
     assert len(launched) == 1
     assert any("Spotify" in m["text"] for m in session.of_type("status"))
 
@@ -245,7 +253,10 @@ def test_open_app_returns_error_text_when_launch_fails(session, monkeypatch):
     def boom(*a, **k):
         raise OSError("no such app")
     monkeypatch.setattr(basic.subprocess, "Popen", boom)
+    monkeypatch.setattr(basic.subprocess, "run", boom)
     monkeypatch.setattr(os, "startfile", boom, raising=False)
+    if hasattr(basic, "_windows_apps"):
+        monkeypatch.setattr(basic, "_windows_apps", lambda: {})
     assert basic.open_app("Nope").startswith("Error")
 
 
@@ -300,16 +311,18 @@ def test_path_traversal_is_refused(home, session):
 def test_every_tool_is_covered():
     """If Hands adds a tool, this reminds us to write a test for it."""
     tested = {"list_files", "find_file", "open_file", "send_file_to_phone",
-              "delete_file", "open_app", "type_text", "press_keys", "pc_info"}
+              "delete_file", "open_app", "type_text", "press_keys", "pc_info",
+              "read_file_text"}
     missing = {f.__name__ for f in basic.TOOLS} - tested
     assert not missing, f"New tools without tests: {sorted(missing)}"
 
 
 WEIRD = ["", " ", "../../../../etc/passwd", "C:\\Windows\\System32", "a" * 5000,
          "~root", "Desktop/\n/etc",
-         # Known bug, reported to Hands in TASKS.md: _resolve() raises ValueError on a
-         # null character. Remove the xfail once pc/actions/basic.py catches it.
-         pytest.param("\x00", marks=pytest.mark.xfail(strict=True, reason="Hands bug: null char raises"))]
+         # Bug reported to Hands: _resolve() raised ValueError on a null character.
+         # Fixed in Hands PR 9 (feature/hands-test-tools). Not strict, so this passes
+         # both before and after that merge; drop the xfail once PR 9 is in main.
+         pytest.param("\x00", marks=pytest.mark.xfail(strict=False, reason="Hands bug: null char raises (fixed in PR 9)"))]
 
 
 @pytest.mark.parametrize("bad", WEIRD)
@@ -322,3 +335,51 @@ def test_file_tools_never_raise_on_weird_input(home, session, launched, bad):
         except Exception as e:  # noqa: BLE001
             pytest.fail(f"{tool.__name__}({bad[:30]!r}) raised {type(e).__name__}: {e}")
         assert isinstance(out, str)
+
+
+# ----------------------------------------------------------- read_file_text -----
+# Added by Hands in PR 9. Skipped until that is merged into main.
+
+needs_read = pytest.mark.skipif(not hasattr(basic, "read_file_text"),
+                                reason="read_file_text not in main yet (Hands PR 9)")
+
+
+@needs_read
+def test_read_file_text_reads_markdown(home, session):
+    out = basic.read_file_text(str(home / "Documents" / "notes.md"))
+    assert "# notes" in out
+    assert any("notes.md" in m["text"] for m in session.of_type("status"))
+
+
+@needs_read
+def test_read_file_text_cuts_long_files(home, session):
+    big = home / "Documents" / "big.txt"
+    big.write_text("Q" * 10_000)
+    out = basic.read_file_text(str(big))
+    assert out.count("Q") == 3000
+    assert "first 3000" in out
+
+
+@needs_read
+def test_read_file_text_reads_docx(home, session):
+    import zipfile
+    doc = home / "Documents" / "letter.docx"
+    xml = ('<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+           '<w:body><w:p><w:r><w:t>Labas, ąčęėįšųūž!</w:t></w:r></w:p></w:body></w:document>')
+    with zipfile.ZipFile(doc, "w") as z:
+        z.writestr("word/document.xml", xml)
+    assert "Labas, ąčęėįšųūž!" in basic.read_file_text(str(doc))
+
+
+@needs_read
+def test_read_file_text_refuses_outside_and_unknown_types(home, session):
+    assert basic.read_file_text(str(home / "private.txt")).startswith("Error")
+    (home / "Desktop" / "photo.heic").write_bytes(b"\x00\x01")
+    assert basic.read_file_text(str(home / "Desktop" / "photo.heic")).startswith("Error")
+
+
+@needs_read
+def test_read_file_text_broken_docx_is_error_text(home, session):
+    bad = home / "Documents" / "broken.docx"
+    bad.write_text("not a zip")
+    assert basic.read_file_text(str(bad)).startswith("Error")

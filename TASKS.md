@@ -63,6 +63,14 @@ Needs from others: everyone: tell me when a piece is merged so I test it.
   - Hands: open_file runs .command/.sh/.app/.exe/.bat without asking.
   - Hands + Brain: type_text/press_keys can run Terminal commands with no Yes/No.
   - Voice + Lead: /voice/* doesn't check the pairing code (contract change needed).
+- Safety pass #2 (demo/SAFETY-PASS.md, ran my tests on main + Hands PR 9):
+  - Hands (Mantas): null-character bug FIXED in PR 9, thanks! My tests are updated for
+    PR 9 (your 3 notes): open_app fakes, read_file_text tests, xfail now non-strict.
+  - Hands (Mantas): NEW: open_app("~/Downloads/Evil.app") or a full .exe path starts any
+    program (Mac `open -a`, Windows `shutil.which`). Refuse names with / or \.
+  - Hands (Mantas): read_file_text: check the .docx XML size before reading (zip bomb).
+  - Lead/Brain: read_file_text makes prompt injection real: tell the model in SYSTEM that
+    file text is data, never instructions.
 
 ## Mantas: Hands (`pc/actions/`)
 Start prompt: "Read PLAN.md and CLAUDE.md, especially contract section 2. My
