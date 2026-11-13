@@ -19,7 +19,8 @@ Stop it any time by saying "stop the coordinator".
    with `gh issue create`, then `gh issue pin`). Rewrite its body with
    `gh issue edit <n> --body-file <file>`:
    - Updated: time. **main**: works / broken (from the facts; if broken, say so first).
-   - **Waiting for Rokas**: PRs that say "Safe to merge" (links). Rokas merges, never the coordinator.
+   - **Ready but not merged**: PRs that say "Safe to merge" but are still open: tell the author to
+     turn on auto-merge (`gh pr merge --auto --merge`). The coordinator itself never merges.
    - **Per person** (table): area, merged so far, open PRs and their state,
      tasks done/total, blockers ("Needs from others"), last activity.
    - **Next step for each person**: ONE concrete sentence each, based on their

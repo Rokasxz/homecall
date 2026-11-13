@@ -129,7 +129,7 @@ def main() -> None:
     if overlaps:
         rows.append("| Other open PRs change the same files | " + "; ".join(overlaps)
                     + ": merge one first, then the other must update from main |")
-    verdict = ("**Safe to merge:** Rokas can press Merge." if ok and not contract and not reqs else
+    verdict = ("**Safe to merge.** If auto-merge is on it merges by itself; otherwise turn it on: `gh pr merge --auto --merge` (or press Merge)." if ok and not contract and not reqs else
                "**Almost:** checks pass, but Rokas must OK the contract/library change first." if ok else
                "**Fix first:** see the FAILED/PROBLEM lines above. Paste them into your AI with "
                "PROMPT J (\"something is broken\") from TEAMMATE-GUIDE.md, then push again: I re-check automatically.")
