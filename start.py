@@ -163,6 +163,7 @@ def setup_voice(url: str) -> str:
         return f"problem: {e}"
 
 
+SECRET_IN_URL = re.compile(r"(/voice/llm/)[^/\s]+")
 LOG = ROOT / "homecall.log"  # the server's log (gitignored: it holds the pairing code)
 
 # ------------------------------------------------------------------- server ---
@@ -184,6 +185,7 @@ def start_server() -> tuple[subprocess.Popen, str | None]:
 
     def keep_logging():  # also keeps the pipe drained, or the server would freeze
         for line in proc.stdout:
+            line = SECRET_IN_URL.sub(r"\1<secret>", line)  # the voice agent's password is in its URL
             log.write(time.strftime("%H:%M:%S ") + line)
 
     threading.Thread(target=keep_logging, daemon=True).start()
