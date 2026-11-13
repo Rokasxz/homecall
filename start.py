@@ -4,6 +4,11 @@ phone, and (if the ElevenLabs key is in .env) points YOUR voice agent at it.
 
     python start.py              start everything; Ctrl+C stops everything
     python start.py --local      only on this computer (http://localhost:8000), no tunnel
+    python start.py --no-window  don't open the PC window (http://localhost:8000/pc) in the browser
+
+On a Mac it first asks for every permission HomeCall needs (see pc/permissions.py),
+so nothing pops up in the middle of a call. Then it opens the PC window with a QR
+code: scan it with your phone's camera.
 
 It gets the team's keys (Claude for the AI, ElevenLabs for voice) by itself from the
 private repo Rokasxz/homecall-keys, with your GitHub login, into .env. It never asks.
@@ -24,6 +29,7 @@ import sys
 import tempfile
 import threading
 import time
+import webbrowser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -146,6 +152,55 @@ def brain_line(env: dict) -> str:
             f"({INVITE}) and start again")
 
 
+# -------------------------------------------------------------- permissions ---
+
+def permissions_step() -> str:
+    """Mac: ask for every permission NOW, while you're at the PC, so nothing pops up mid-call."""
+    if sys.platform != "darwin":
+        return "nothing to allow on this system"
+    sys.path.insert(0, str(ROOT))
+    from pc import permissions  # noqa: E402
+
+    if all(i["ok"] for i in permissions.check(ask=False)):
+        return "all allowed"
+    app = permissions.starter_app()
+    say(f"\nmacOS must allow {app} (it runs HomeCall) to see and control this Mac. Only once.")
+    say("Windows will pop up now: click OK / Allow on each one.")
+    missing = [i for i in permissions.check(ask=True) if not i["ok"]]
+    if missing and sys.stdin.isatty():
+        say(f"\nAlmost: in System Settings (opening now), switch ON \"{app}\" under:")
+        for i in missing:
+            say(f"  - {i['name']}")
+        say("If macOS says \"Quit & Reopen\", click it, then start HomeCall again.")
+        say("Waiting until they're on... (press Enter to start anyway)")
+        missing = wait_for_permissions(permissions, missing)
+    if missing:
+        names = ", ".join(i["name"].split(" (")[0] for i in missing)
+        return f"MISSING: {names}. Fix it in the PC window (http://localhost:{PORT}/pc)"
+    return "all allowed"
+
+
+def wait_for_permissions(permissions, missing: list[dict], limit: float = 600) -> list[dict]:
+    """Re-check every few seconds; open the next Settings page as each one is switched on."""
+    import select
+    shown = None
+    t0 = time.time()
+    while missing and time.time() - t0 < limit:
+        if missing[0]["key"] != shown:
+            shown = missing[0]["key"]
+            permissions.open_settings(shown)
+        ready, _, _ = select.select([sys.stdin], [], [], 3)
+        if ready:
+            sys.stdin.readline()
+            break
+        now = {i["key"]: i for i in permissions.check(ask=False, apps=True)}
+        for i in missing:
+            if now[i["key"]]["ok"]:
+                say(f"  OK  {i['name']}")
+        missing = [i for i in missing if not now[i["key"]]["ok"]]
+    return missing
+
+
 # ------------------------------------------------------------------- tunnel ---
 
 def find_cloudflared() -> str | None:
@@ -249,10 +304,11 @@ LOG = ROOT / "homecall.log"  # the server's log (gitignored: it holds the pairin
 
 # ------------------------------------------------------------------- server ---
 
-def start_server() -> tuple[subprocess.Popen, str | None]:
+def start_server(url: str | None) -> tuple[subprocess.Popen, str | None]:
     # UTF-8 both ways: Windows' own encoding can't print e.g. "ž" and the server would crash.
     env = dict(os.environ, PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8",
-               HOMECALL_LOG_LEVEL="info")  # each visit -> homecall.log
+               HOMECALL_LOG_LEVEL="info",          # each visit -> homecall.log
+               HOMECALL_PUBLIC_URL=url or "")      # for the QR code in the PC window
     proc = subprocess.Popen([sys.executable, "-m", "pc.server"], cwd=ROOT, env=env,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             text=True, encoding="utf-8", errors="replace")
@@ -288,10 +344,11 @@ def main() -> None:
         sys.exit(1)
     keys_note = get_team_keys()
     env = read_env()
+    allowed = permissions_step()
 
     tunnel, url, tunnel_note = (None, None, "local only (--local)") if local_only else start_tunnel()
     voice = setup_voice(url) if url else "off (needs the tunnel)"
-    server, code = start_server()
+    server, code = start_server(url)
     if not code:
         say("\nThe app didn't start. Run `python check.py` to see why.")
         if tunnel:
@@ -306,8 +363,9 @@ def main() -> None:
         say( "                              (type the code, then choose Voice call or Type)")
     else:
         say(f"  Phone: not reachable. {tunnel_note}")
-    say(f"  On this computer:           http://localhost:{PORT}")
+    say(f"  PC window (QR code):        http://localhost:{PORT}/pc")
     say(f"  Pairing code:               {code}")
+    say(f"  Allowed on this PC:         {allowed}")
     say(f"  Brain:  {brain_line(env)}")
     say(f"  Voice:  {voice}")
     if keys_note:
@@ -315,6 +373,8 @@ def main() -> None:
     say("  Log:    homecall.log (each phone visit; private: never post it)")
     say("  Found a bug? GitHub -> Issues -> New issue -> Bug. Never post the address or code.")
     say("=" * 64 + "\n")
+    if "--no-window" not in sys.argv:
+        webbrowser.open(f"http://localhost:{PORT}/pc")  # the QR code to scan with the phone
 
     try:
         while server.poll() is None and (tunnel is None or tunnel.poll() is None):

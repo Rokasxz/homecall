@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HomeCall on this PC</title>
+<!-- The PC window (Owner: Server). Only this computer can open it: it shows the pairing code. -->
+<style>
+  :root { --bg:#0f1115; --card:#1a1d24; --text:#f2f4f8; --muted:#9aa3b2; --ok:#22c55e; --bad:#ef4444; --accent:#3b82f6; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.45 -apple-system, system-ui, sans-serif;
+         display:flex; justify-content:center; padding:32px 16px; }
+  .wrap { width:100%; max-width:520px; }
+  h1 { font-size:28px; margin:0 0 4px; }
+  .muted { color:var(--muted); }
+  .card { background:var(--card); border-radius:16px; padding:20px; margin-top:16px; }
+  #qr { background:#fff; padding:14px; border-radius:12px; width:max-content; margin:4px auto 12px; }
+  #qr img, #qr canvas { display:block; }
+  .code { font-size:40px; letter-spacing:6px; font-weight:700; text-align:center; margin:6px 0; }
+  .url { text-align:center; word-break:break-all; font-size:14px; }
+  .row { display:flex; align-items:center; gap:10px; padding:8px 0; border-top:1px solid #262a33; }
+  .row:first-child { border-top:0; }
+  .dot { width:12px; height:12px; border-radius:50%; flex:none; background:var(--muted); }
+  .dot.ok { background:var(--ok); } .dot.bad { background:var(--bad); }
+  .row .name { flex:1; }
+  button { font:inherit; padding:6px 14px; border:0; border-radius:10px; background:var(--accent); color:#fff; cursor:pointer; }
+  button.quiet { background:#2a2f3a; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>HomeCall is on</h1>
+  <div class="muted">Keep this computer on. Close the HomeCall window to stop it.</div>
+
+  <div class="card" id="pair">
+    <div id="qr"></div>
+    <div id="qrText" class="muted" style="text-align:center">Scan with your phone's camera, then choose Voice call or Type.</div>
+    <div class="code" id="code">------</div>
+    <div class="url muted" id="url"></div>
+  </div>
+
+  <div class="card">
+    <div class="row"><span class="dot" id="phoneDot"></span><span class="name" id="phone">Phone: waiting</span></div>
+    <div id="perms"></div>
+    <div class="row"><span class="dot ok"></span><span class="name" id="brain">AI</span></div>
+    <div class="row"><span class="dot" id="voiceDot"></span><span class="name" id="voice">Voice</span></div>
+    <div class="row"><span class="name muted">Something not green?</span><button class="quiet" id="recheck">Check again</button></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+  const $ = (id) => document.getElementById(id);
+  let shownLink = null;
+
+  function showPairing(info) {
+    $("code").textContent = info.code.slice(0, 3) + " " + info.code.slice(3);
+    if (!info.url) {
+      $("qr").classList.add("hidden");
+      $("qrText").textContent = "Only this computer can open HomeCall right now (no tunnel). Restart HomeCall without --local.";
+      return;
+    }
+    // The phone page reads the code from after the "#": it never goes to any server.
+    const link = info.url + "/#code=" + info.code;
+    $("url").textContent = info.url;
+    if (link === shownLink) return;
+    shownLink = link;
+    $("qr").innerHTML = "";
+    if (window.QRCode) {
+      new QRCode($("qr"), { text: link, width: 240, height: 240, correctLevel: QRCode.CorrectLevel.M });
+    } else {
+      $("qr").classList.add("hidden");
+      $("qrText").textContent = "The QR code didn't load. On your phone, open the address below and type the code.";
+    }
+  }
+
+  function showStatus(info) {
+    $("phoneDot").className = "dot" + (info.in_call ? " ok" : "");
+    $("phone").textContent = info.in_call ? "Phone: connected" : "Phone: waiting for your phone";
+    $("perms").innerHTML = "";
+    for (const p of info.permissions) {
+      const row = document.createElement("div"); row.className = "row";
+      const dot = document.createElement("span"); dot.className = "dot " + (p.ok ? "ok" : "bad");
+      const name = document.createElement("span"); name.className = "name"; name.textContent = p.name;
+      row.append(dot, name);
+      if (!p.ok && p.settings) {
+        const fix = document.createElement("button"); fix.textContent = "Fix";
+        fix.onclick = () => fetch("/pc/fix/" + p.key, { method: "POST" });
+        row.append(fix);
+      }
+      $("perms").append(row);
+    }
+    $("brain").textContent = "AI: " + info.brain;
+    $("voiceDot").className = "dot" + (info.voice ? " ok" : "");
+    $("voice").textContent = info.voice ? "Voice calls: on" : "Voice calls: off (no ElevenLabs key)";
+  }
+
+  async function refresh(recheck) {
+    try {
+      const r = await fetch("/pc/info" + (recheck ? "?recheck=1" : ""));
+      if (!r.ok) return;
+      const info = await r.json();
+      showPairing(info); showStatus(info);
+    } catch (_) { $("phone").textContent = "HomeCall stopped. Start it again."; $("phoneDot").className = "dot bad"; }
+  }
+
+  $("recheck").onclick = () => refresh(true);
+  refresh(false);
+  setInterval(() => refresh(false), 2000);
+</script>
+</body>
+</html>
