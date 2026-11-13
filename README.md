@@ -50,6 +50,20 @@ cloudflared tunnel --url http://localhost:8000
 It prints an address like `https://something.trycloudflare.com`. Open that on the
 phone. The address changes every time you restart cloudflared.
 
+If cloudflared keeps logging QUIC timeouts or "Allow outbound TCP on port 7844",
+the network (e.g. venue or school Wi-Fi) blocks the tunnel. Connect the PC to a
+phone hotspot instead. (`--protocol http2` doesn't help: it also needs port 7844.)
+
+The server only listens on this PC (`127.0.0.1`), so phones always come in
+through the tunnel, never straight over the Wi-Fi. For a quick test at home
+without the tunnel, put `HOMECALL_HOST=0.0.0.0` in `.env` and open
+`http://<the PC's IP>:8000` on a phone on the same Wi-Fi (no microphone: that
+needs https). Never do that at the venue.
+
+Pairing rules: after 5 wrong codes in a row nobody can pair for 60 seconds;
+only one phone can be on the call at a time; files sent to the phone stop
+downloading when the call ends.
+
 ### Mac only
 The first time, macOS asks for Screen Recording and Accessibility permission
 for your terminal (System Settings -> Privacy & Security). Without them the

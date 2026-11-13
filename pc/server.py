@@ -5,9 +5,12 @@ Run from the project root:   python -m pc.server
 Then open the printed address on the phone and enter the pairing code.
 """
 import asyncio
+import math
 import os
 import pathlib
 import secrets
+import time
+from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -36,12 +39,70 @@ from pc.voice.routes import router as voice_router  # noqa: E402
 
 PAIR_CODE = os.environ.get("HOMECALL_CODE") or f"{secrets.randbelow(10**6):06d}"
 PORT = int(os.environ.get("HOMECALL_PORT", "8000"))
+# 127.0.0.1 = only this PC (and the cloudflared tunnel running on it) can connect.
+# HOMECALL_HOST=0.0.0.0 lets phones on the same Wi-Fi in directly: only for a quick test at home.
+HOST = os.environ.get("HOMECALL_HOST", "127.0.0.1")
 FRAME_EVERY = float(os.environ.get("HOMECALL_FPS_DELAY", "0.5"))  # seconds between screen frames
 OUTBOX = ROOT / "pc" / "outbox"
 OUTBOX.mkdir(exist_ok=True)
 PHONE_DIR = ROOT / "phone"
 
-app = FastAPI(title="HomeCall")
+MAX_WRONG_CODES = 5    # this many wrong pairing codes in a row ...
+LOCKOUT_SECONDS = 60   # ... and nobody can pair for this long (guessing 1,000,000 codes takes months)
+
+
+class Door:
+    """Who may start a call. Starts fresh every time the server starts."""
+
+    def __init__(self) -> None:
+        self.wrong_codes = 0      # wrong codes in a row
+        self.locked_until = 0.0   # time.monotonic() when the lockout ends
+        self.in_call = False      # only one phone at a time
+
+    def refuse(self, hello) -> str | None:
+        """Check the phone's first message. Returns why it's refused, or None to let it in."""
+        now = time.monotonic()
+        if now < self.locked_until:
+            wait = math.ceil(self.locked_until - now)
+            return f"Too many wrong codes. Pairing is locked for {wait} more seconds."
+        if not isinstance(hello, dict) or hello.get("type") != "hello" or str(hello.get("code")) != PAIR_CODE:
+            self.wrong_codes += 1
+            if self.wrong_codes >= MAX_WRONG_CODES:
+                self.wrong_codes = 0
+                self.locked_until = now + LOCKOUT_SECONDS
+                return (f"Wrong pairing code, {MAX_WRONG_CODES} times in a row. "
+                        f"Pairing is locked for {LOCKOUT_SECONDS} seconds.")
+            return "Wrong pairing code."
+        if self.in_call:
+            return ("Another phone is already on a call with this PC. Hang up there first "
+                    "(if that phone lost its connection, try again in a minute).")
+        self.wrong_codes = 0
+        return None
+
+
+door = Door()
+
+
+def clean_outbox() -> None:
+    """Delete the files sent to the phone (pc/outbox/<token>__<name>), so their links stop working."""
+    for f in OUTBOX.glob("*__*"):
+        try:
+            if f.is_file() or f.is_symlink():
+                f.unlink()
+        except OSError:
+            pass  # e.g. Windows while the phone is still downloading it: the next cleanup gets it
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Runs when the server starts: no lockout or call from an earlier run, no old files."""
+    global door
+    door = Door()
+    clean_outbox()
+    yield
+
+
+app = FastAPI(title="HomeCall", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=PHONE_DIR), name="static")
 app.include_router(voice_router)  # /voice/transcribe and /voice/speak (owner: Voice)
 
@@ -69,32 +130,36 @@ def download(token: str):
 async def call(ws: WebSocket) -> None:
     await ws.accept()
     hello = await ws.receive_json()
-    if hello.get("type") != "hello" or str(hello.get("code")) != PAIR_CODE:
-        await ws.send_json({"type": "error", "text": "Wrong pairing code."})
+    refused = door.refuse(hello)  # wrong code, locked out, or another phone is on the call
+    if refused:
+        await ws.send_json({"type": "error", "text": refused})
         await ws.close()
         return
+    door.in_call = True  # set before any await, so a second phone can't slip in
 
-    loop = asyncio.get_running_loop()
-    outgoing: asyncio.Queue = asyncio.Queue()
-    session = Session(loop, outgoing)
-    brain = Brain()
-    session.emit({"type": "welcome", "text": "Connected to your PC."})
-
-    async def sender() -> None:  # the ONLY place that writes to the socket
-        while True:
-            item = await outgoing.get()
-            if isinstance(item, bytes):
-                await ws.send_bytes(item)
-            else:
-                await ws.send_json(item)
-
-    async def frames() -> None:
-        while True:
-            outgoing.put_nowait(await asyncio.to_thread(screen.capture_jpeg))
-            await asyncio.sleep(FRAME_EVERY)
-
-    tasks = [asyncio.create_task(sender()), asyncio.create_task(frames())]
+    tasks: list[asyncio.Task] = []
+    brain = None
     try:
+        loop = asyncio.get_running_loop()
+        outgoing: asyncio.Queue = asyncio.Queue()
+        session = Session(loop, outgoing)
+        brain = Brain()
+        session.emit({"type": "welcome", "text": "Connected to your PC."})
+
+        async def sender() -> None:  # the ONLY place that writes to the socket
+            while True:
+                item = await outgoing.get()
+                if isinstance(item, bytes):
+                    await ws.send_bytes(item)
+                else:
+                    await ws.send_json(item)
+
+        async def frames() -> None:
+            while True:
+                outgoing.put_nowait(await asyncio.to_thread(screen.capture_jpeg))
+                await asyncio.sleep(FRAME_EVERY)
+
+        tasks = [asyncio.create_task(sender()), asyncio.create_task(frames())]
         while True:
             msg = await ws.receive_json()
             kind = msg.get("type")
@@ -113,7 +178,11 @@ async def call(ws: WebSocket) -> None:
     finally:
         for t in tasks:
             t.cancel()
-        await asyncio.to_thread(getattr(brain, "close", lambda: None))  # e.g. stop Claude Code (max brain)
+        try:
+            await asyncio.to_thread(getattr(brain, "close", lambda: None))  # e.g. stop Claude Code (max brain)
+        finally:
+            clean_outbox()  # files sent during this call can't be downloaded any more
+            door.in_call = False  # the next phone may call
 
 
 def main() -> None:
@@ -122,8 +191,12 @@ def main() -> None:
     print(f"  On this PC:   http://localhost:{PORT}")
     print("  From the phone: use the https address that cloudflared prints, e.g.")
     print(f"      cloudflared tunnel --url http://localhost:{PORT}")
-    print("  (The phone's microphone only works over https or localhost.)\n")
-    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")
+    print("  (The phone's microphone only works over https or localhost.)")
+    if HOST not in ("127.0.0.1", "localhost", "::1"):
+        print(f"  WARNING: HOMECALL_HOST={HOST}: devices on this network can reach the server")
+        print(f"  directly (http://<this PC's IP>:{PORT}). Only for a quick test at home.")
+    print()
+    uvicorn.run(app, host=HOST, port=PORT, log_level="warning")
 
 
 if __name__ == "__main__":
