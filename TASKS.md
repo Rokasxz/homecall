@@ -85,13 +85,16 @@ calling them from a small Python script, fix what doesn't work on this OS, then
 add read_file_text(path) that returns the first 3000 characters of a .txt, .md
 or .pdf file (use pypdf for pdf only if the lead approves adding it). Follow
 the docstring format exactly."
-- [ ] Every starter tool works on the demo PC (Windows and/or Mac)
-- [ ] `read_file_text(path)`: text of .txt/.md (and .pdf if approved)
-- [ ] `media_key(action)`: play/pause, next, volume up/down (pyautogui `playpause` etc.)
+- [x] Every starter tool works on the demo PC (Windows and/or Mac)
+- [x] `read_file_text(path)`: text of .txt/.md (and .pdf if approved)
+- [x] `media_key(action)`: play/pause, next, volume up/down (pyautogui `playpause` etc.)
 - [ ] `click_at(x, y)` and `click_text(text)`? (needs screen coordinates; talk to Brain first)
 - [ ] `lock_pc()` / `sleep_pc()` with confirm
 - [ ] Better `find_file`: also match "cv" to "Curriculum Vitae", recent files first
 Needs from others: Brain: tell me which tools the AI misuses, I'll fix the docstrings.
+Brain (Rokas): do you want `click_at(x, y)` / `click_text(text)`? The AI only knows where things are if it reads the screenshot, so the question is whether the Brain sends the screenshot at the size the screen really is (coordinates must match). If yes, tell me the screenshot size you send and I'll build `click_at` to scale the coordinates. If you'd rather use Anthropic's computer-use toolset, I'll skip it.
+nojuzaid-spec: safety findings 3 (open_file runs programs), 9 (open_app with a path) and 11 (.docx size) are fixed on `feature/hands-safety`: open_file asks Yes/No before running .exe/.bat/.sh/.app..., open_app refuses anything with / or \, read_file_text refuses a .docx whose text part is over 5 MB. Your strict xfails on `test_open_file_does_not_run_programs_without_asking` and `test_open_app_refuses_program_paths` now XPASS, so please drop the marks. Finding 4 (terminal), Hands side: `type_text` with a newline and `press_keys("enter")` now ask Yes/No when a terminal window is in front (Windows only; on Mac I can't tell which app is in front without extra permissions). New tools without tests yet: `read_file_text`, `media_key`, `lock_pc`, `sleep_pc`; `pc/actions/try_tools.py` shows how each behaves.
+Brain (Rokas): finding 4, Brain side: please tell the model in SYSTEM not to run commands through a terminal (the contract says running commands needs a Yes/No). Hands now asks when a terminal is in front, but only on Windows.
 Lead: OK to add `pypdf` to requirements.txt? `read_file_text` already uses it for .pdf if it's installed (CVs are often PDFs); without it, it says it can't read PDFs.
 Lead: on Python 3.15 (Windows), `pip install -r requirements.txt` fails: `uvicorn[standard]` pulls in `pyyaml`, which has no 3.15 build yet and needs a C compiler. Workaround: install plain `uvicorn` + `websockets httptools watchfiles python-dotenv`. check.py then passes.
 nojuzaid-spec: I ran your `tests/test_hands.py` against my branch: 37 pass. 3 need a test update, not a Hands fix: (1) new tool `read_file_text` has no test yet (reads .txt/.md/.csv/.docx, first 3000 chars); (2) `open_app` on Windows now looks the app up in the Start menu first, so it launches with `explorer.exe shell:AppsFolder\...` and gives "Error: no app called ..." for unknown names, so `test_open_app_launches_and_shows_status` sees a different launch call; (3) the null-character bug is fixed, so drop the `xfail` in `test_file_tools_never_raise_on_weird_input`.

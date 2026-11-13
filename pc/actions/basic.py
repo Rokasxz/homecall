@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import time
+import unicodedata
 import zipfile
 from pathlib import Path
 from xml.etree import ElementTree
@@ -96,30 +97,99 @@ def list_files(folder: str = "Desktop") -> str:
     return "\n".join(lines) or "(empty)"
 
 
+# What people say for a file -> other words that may be in its name (English + Lithuanian).
+_CV = ["cv", "curriculum vitae", "curriculum", "resume", "gyvenimo aprasymas"]
+_PHOTO = ["photo", "picture", "image", "img", "nuotrauka", "foto"]
+SYNONYMS = {
+    "cv": _CV, "resume": _CV, "curriculum vitae": _CV,
+    "photo": _PHOTO, "picture": _PHOTO, "image": _PHOTO,
+    "invoice": ["invoice", "saskaita", "faktura"],
+    "report": ["report", "ataskaita"],
+    "draft": ["draft", "juodrastis"],
+    "notes": ["notes", "note", "uzrasai"],
+    "presentation": ["presentation", "slides", "pristatymas", "skaidres"],
+    "contract": ["contract", "agreement", "sutartis"],
+    "letter": ["letter", "laiskas"],
+}
+SKIP_DIRS = {"node_modules", "__pycache__", ".venv", "venv", "site-packages"}
+MAX_HITS = 20
+
+
+def _plain(text: str) -> str:
+    """Lowercase without accents: 'Ataskaitą' -> 'ataskaita', so 'ataskaita' finds it."""
+    text = unicodedata.normalize("NFKD", text.lower())
+    return "".join(ch for ch in text if not unicodedata.combining(ch))
+
+
+def _match_score(filename: str, phrases: list[str]) -> int:
+    """0 = no match. 4 = the whole name, 3 = the start, 2 = inside, 1 = all words, scattered."""
+    stem, full = _plain(Path(filename).stem), _plain(filename)
+    best = 0
+    for phrase in phrases:
+        if not all(word in full for word in phrase.split()):
+            continue
+        if stem == phrase:
+            score = 4
+        elif stem.startswith(phrase):
+            score = 3
+        elif phrase in full:
+            score = 2
+        else:
+            score = 1
+        best = max(best, score)
+    return best
+
+
 def find_file(name: str) -> str:
-    """Search Desktop, Documents, Downloads and Pictures for files whose name contains the text.
+    """Search Desktop, Documents, Downloads and Pictures for a file by name; best match and newest first. Knows synonyms: "cv" also finds "Curriculum Vitae" and "resume".
 
     Args:
-        name: Part of the file name, e.g. "cv" or "report.pdf". Not case sensitive.
+        name: Part of the file name, e.g. "cv", "report 2024" or "photo.jpg". Not case sensitive.
     """
-    needle, hits = name.lower(), []
+    wanted = _plain(" ".join(name.split()))
+    if not wanted:
+        return "Error: tell me part of the file name."
+    phrases = list(dict.fromkeys([wanted] + SYNONYMS.get(wanted, [])))
+    found: list[tuple[int, float, str]] = []
     for root in ALLOWED_ROOTS:
         if not root.exists():
             continue
         for dirpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = [d for d in dirnames if not d.startswith(".")][:50]  # don't crawl forever
+            dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in SKIP_DIRS][:50]
             if dirpath.count(os.sep) - str(root).count(os.sep) > 3:
-                dirnames[:] = []
+                dirnames[:] = []  # don't crawl forever
             for f in filenames:
-                if needle in f.lower() and not f.startswith("~$"):  # ~$ = Office lock files
-                    hits.append(str(Path(dirpath) / f))
-                    if len(hits) >= 20:
-                        return "\n".join(hits)
-    return "\n".join(hits) or f"No file with '{name}' in its name."
+                if f.startswith("~$"):  # Office lock files
+                    continue
+                score = _match_score(f, phrases)
+                if score:
+                    p = Path(dirpath) / f
+                    try:
+                        modified = p.stat().st_mtime
+                    except OSError:
+                        modified = 0.0
+                    found.append((score, modified, str(p)))
+            if len(found) >= 500:
+                break
+    if not found:
+        return f"No file with '{name}' (or a similar word) in its name."
+    found.sort(key=lambda hit: (-hit[0], -hit[1]))  # best match first, then newest
+    more = f" (showing the first {MAX_HITS})" if len(found) > MAX_HITS else ""
+    return f"Found {len(found)}, best match and newest first{more}:\n" + "\n".join(p for _, _, p in found[:MAX_HITS])
+
+
+# Opening one of these RUNS it. Only after a Yes on the phone.
+PROGRAM_EXTS = {".exe", ".bat", ".cmd", ".com", ".msi", ".msp", ".scr", ".pif", ".lnk", ".url", ".reg",
+                ".ps1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".hta", ".jar", ".py", ".pyw",
+                ".sh", ".command", ".app", ".pkg", ".dmg", ".action", ".workflow", ".run", ".bin", ".appimage"}
+
+
+def _is_program(p: Path) -> bool:
+    return p.suffix.lower() in PROGRAM_EXTS
 
 
 def open_file(path: str) -> str:
-    """Open a file or folder on the PC with its default app (PDF viewer, Word, Explorer...).
+    """Open a file or folder on the PC with its default app (PDF viewer, Word, Explorer...). A program or script (.exe, .bat, .sh...) is only run after the user says Yes on the phone.
 
     Args:
         path: Full path of the file or folder, e.g. from find_file.
@@ -127,6 +197,9 @@ def open_file(path: str) -> str:
     p = _resolve(path)
     if p is None or not p.exists():
         return f"Error: '{path}' not found or not allowed."
+    if _is_program(p):
+        if not _session() or not _session().confirm(f"{p.name} is a program. Run it?"):
+            return f"Cancelled: {p.name} is a program and the user did not confirm running it."
     if _session():
         _session().status(f"Opening {p.name}")
     try:
@@ -143,6 +216,7 @@ def open_file(path: str) -> str:
 
 TEXT_TYPES = {".txt", ".md", ".csv", ".log", ".json", ".xml", ".html", ".htm", ".ini", ".yaml", ".yml", ".py", ".js"}
 MAX_CHARS = 3000
+MAX_DOCX_XML = 5 * 1024 * 1024  # a .docx whose text part is bigger than 5 MB is not a letter
 
 
 def _read_plain(p: Path) -> str:
@@ -158,6 +232,8 @@ def _read_plain(p: Path) -> str:
 def _read_docx(p: Path) -> str:
     w = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
     with zipfile.ZipFile(p) as z:
+        if z.getinfo("word/document.xml").file_size > MAX_DOCX_XML:
+            raise ValueError("the document is too big to read")
         root = ElementTree.fromstring(z.read("word/document.xml"))
     paragraphs = []
     for para in root.iter(f"{w}p"):
@@ -295,6 +371,10 @@ def open_app(name: str) -> str:
     Args:
         name: The app's name as a user would say it.
     """
+    name = name.strip().strip('"')
+    if not name or "/" in name or "\\" in name or name.startswith((".", "~")):
+        # A path would skip the four-folder rule and could run anything.
+        return "Error: open_app takes an app NAME like 'Spotify' or 'Notepad', not a file path. To open a file, use open_file."
     if _session():
         _session().status(f"Opening {name}")
     try:
@@ -323,6 +403,44 @@ def open_app(name: str) -> str:
 
 
 # ------------------------------------------------------- keyboard & mouse -------
+
+TERMINALS = {"cmd.exe", "powershell.exe", "pwsh.exe", "windowsterminal.exe", "conhost.exe", "openconsole.exe",
+             "mintty.exe", "bash.exe", "wsl.exe", "alacritty.exe", "wezterm-gui.exe", "hyper.exe", "putty.exe"}
+
+
+def _foreground_exe() -> str:
+    """Name of the program whose window is in front, e.g. 'notepad.exe' (Windows only; '' elsewhere)."""
+    if not IS_WIN:
+        return ""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(user32.GetForegroundWindow(), ctypes.byref(pid))
+        handle = kernel32.OpenProcess(0x1000, False, pid.value)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return ""
+        buf, size = ctypes.create_unicode_buffer(512), wintypes.DWORD(512)
+        kernel32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size))
+        kernel32.CloseHandle(handle)
+        return Path(buf.value).name.lower()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _terminal_in_front() -> bool:
+    return _foreground_exe() in TERMINALS
+
+
+def _ok_to_run_in_terminal(what: str) -> str | None:
+    """Pressing Enter in a terminal RUNS a command: ask first. Returns an error text, or None if it's fine."""
+    if not _terminal_in_front():
+        return None
+    if not _session() or not _session().confirm(f"A terminal window is in front. {what}"):
+        return "Cancelled: a terminal window is in front and the user did not confirm running a command there."
+    return None
+
 
 def _type_windows(text: str) -> None:
     """Type any characters (also ą, č, ė, š, ž, emoji) by sending them to Windows as Unicode key presses."""
@@ -373,6 +491,10 @@ def type_text(text: str) -> str:
     """
     if len(text) > 5000:
         return "Error: that's too much text to type at once (max 5000 characters)."
+    if "\n" in text or "\r" in text:
+        problem = _ok_to_run_in_terminal(f"Type and run: {text.strip()[:80]!r}?")
+        if problem:
+            return problem
     try:
         import pyautogui
         skipped = 0
@@ -418,6 +540,10 @@ def press_keys(keys: str) -> str:
         unknown = [k for k in names if valid is not None and k not in valid]
         if not names or unknown:  # check BEFORE pressing, so nothing is left half-pressed
             return f"Error: unknown key name(s): {', '.join(unknown) or keys}. Use names like ctrl, alt, shift, win, enter, tab, f5, a."
+        if "enter" in names:
+            problem = _ok_to_run_in_terminal("Press Enter and run whatever is typed there?")
+            if problem:
+                return problem
         pyautogui.hotkey(*names)
         return f"Pressed {keys}"
     except Exception as e:  # noqa: BLE001

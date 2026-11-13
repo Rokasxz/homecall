@@ -17,7 +17,7 @@ import zipfile
 from pathlib import Path
 
 import pc.actions as actions
-from pc.actions import basic
+from pc.actions import basic, media, power
 
 RESULTS: list[tuple[bool, str]] = []
 
@@ -90,12 +90,33 @@ def safe_tests(tmp: Path) -> None:
         check("refuses a folder outside the allowed ones", r, r.startswith("Error"))
 
         print("\nfind_file")
+        import os
+        now = time.time()
+        (tmp / "Curriculum Vitae 2019.pdf").write_bytes(b"%PDF fake")
+        os.utime(tmp / "Curriculum Vitae 2019.pdf", (now - 9e6, now - 9e6))  # years old
+        (tmp / "Resume.docx").write_bytes(b"PK fake")
+        (tmp / "Ataskaitą.docx").write_bytes(b"PK fake")
+        (tmp / "notes old.txt").write_text("old", encoding="utf-8")
+        os.utime(tmp / "notes old.txt", (now - 1e6, now - 1e6))
+        (tmp / "notes new.txt").write_text("new", encoding="utf-8")
         r = basic.find_file("cv")
         check("finds 'cv'", r, "Mantas CV.txt" in r)
+        check("'cv' also finds 'Curriculum Vitae' and 'Resume'", r,
+              "Curriculum Vitae 2019.pdf" in r and "Resume.docx" in r)
+        r = basic.find_file("resume")
+        check("'resume' finds the CV files too", r, "Mantas CV.txt" in r and "Curriculum Vitae 2019.pdf" in r)
+        r = basic.find_file("notes")
+        check("newest file first", r, r.index("notes new.txt") < r.index("notes old.txt"))
+        r = basic.find_file("ataskaita")
+        check("finds 'Ataskaitą' without typing the accent", r, "Ataskaitą.docx" in r)
+        r = basic.find_file("mantas cv")
+        check("two words find 'Mantas CV.txt'", r, "Mantas CV.txt" in r)
         r = basic.find_file("PLAN")
         check("finds a file 2 folders deep, any letter case", r, "plan.txt" in r)
         r = basic.find_file("zzz-nothing")
         check("says when nothing is found", r, r.startswith("No file"))
+        r = basic.find_file("   ")
+        check("empty search gives an error", r, r.startswith("Error"))
 
         print("\nread_file_text")
         r = basic.read_file_text(str(cv))
@@ -133,6 +154,24 @@ def safe_tests(tmp: Path) -> None:
         check("without a phone it refuses", r, r.startswith("Cancelled") and draft.exists())
         r = basic.delete_file("C:\\Windows\\win.ini" if sys.platform == "win32" else "/etc/hosts")
         check("refuses a file outside the allowed folders", r, r.startswith("Error"))
+
+        print("\nopen_file with programs (phone answers No, so nothing runs)")
+        for prog in ("setup.exe", "run-me.bat", "script.sh"):
+            (tmp / prog).write_text("echo pwned", encoding="utf-8")
+        phone = FakeSession(answer=False)
+        actions.current_session = phone
+        r = basic.open_file(str(tmp / "setup.exe"))
+        check("asks before running a .exe; 'No' cancels", r, r.startswith("Cancelled"))
+        actions.current_session = None
+        r = basic.open_file(str(tmp / "run-me.bat"))
+        check("without a phone it refuses to run a .bat", r, r.startswith("Cancelled"))
+        r = basic.open_file(str(tmp / "script.sh"))
+        check("same for a .sh script", r, r.startswith("Cancelled"))
+
+        print("\nread_file_text with a huge .docx")
+        make_docx(tmp / "huge.docx", ["x" * (6 * 1024 * 1024)])
+        r = basic.read_file_text(str(tmp / "huge.docx"))
+        check("refuses a .docx whose text part is over 5 MB", r, r.startswith("Error") and "too big" in r)
     finally:
         basic.ALLOWED_ROOTS = saved_roots
         actions.current_session = None
@@ -154,6 +193,47 @@ def safe_tests(tmp: Path) -> None:
         print(f"      (Spotify -> {found or 'not installed'})")
     r = basic.open_app("NoSuchAppXyz123")
     check("an unknown app gives an error, not a fake 'done'", r, r.startswith("Error"))
+    for bad in ("C:\\Users\\me\\Downloads\\evil.exe", "~/Downloads/Evil.app", "/tmp/evil.sh", "..\\evil"):
+        r = basic.open_app(bad)
+        check(f"refuses a path as an app name: {bad}", r, r.startswith("Error") and "NAME" in r)
+
+    print("\ntyping into a terminal (pretend a terminal is in front; nothing is pressed)")
+    real_foreground = basic._foreground_exe
+    basic._foreground_exe = lambda: "powershell.exe"
+    try:
+        actions.current_session = None
+        r = basic.press_keys("enter")
+        check("Enter in a terminal without a phone is refused", r, r.startswith("Cancelled"))
+        r = basic.type_text("dir\n")
+        check("typing a line + Enter in a terminal without a phone is refused", r, r.startswith("Cancelled"))
+        phone = FakeSession(answer=False)
+        actions.current_session = phone
+        r = basic.press_keys("enter")
+        check("Enter in a terminal asks on the phone; 'No' cancels", r, r.startswith("Cancelled"))
+    finally:
+        basic._foreground_exe = real_foreground
+        actions.current_session = None
+
+    print("\nmedia_key (only wrong input here; a real press is under --gui)")
+    r = media.media_key("dance")
+    check("unknown action gives an error", r, r.startswith("Error"))
+    r = media.media_key("volume up", 0)
+    check("times out of range gives an error", r, r.startswith("Error"))
+    r = media.media_key("volume up", "lots")
+    check("times that isn't a number gives an error", r, r.startswith("Error"))
+
+    print("\nlock_pc / sleep_pc (phone always answers No, so nothing happens)")
+    phone = FakeSession(answer=False)
+    actions.current_session = phone
+    r = power.lock_pc()
+    check("lock_pc asks first; 'No' cancels", r, r.startswith("Cancelled") and len(phone.sent) == 0)
+    r = power.sleep_pc()
+    check("sleep_pc asks first; 'No' cancels", r, r.startswith("Cancelled") and len(phone.sent) == 0)
+    actions.current_session = None
+    r = power.lock_pc()
+    check("lock_pc without a phone refuses", r, r.startswith("Cancelled"))
+    r = power.sleep_pc()
+    check("sleep_pc without a phone refuses", r, r.startswith("Cancelled"))
 
 
 def gui_tests(tmp: Path) -> None:
@@ -171,6 +251,11 @@ def gui_tests(tmp: Path) -> None:
     r = basic.open_app("Calculator")
     check("open_app opens Calculator", r, r.startswith("Opened"))
     time.sleep(1.5)
+    r = media.media_key("volume up")
+    check("media_key volume up (watch for the volume slider)", r, r.startswith("Pressed"))
+    time.sleep(0.5)
+    r = media.media_key("volume down")
+    check("media_key volume down (back where it was)", r, r.startswith("Pressed"))
 
 
 TYPED = "Labas iš HomeCall! ąčęėįšųūž ĄČĘĖĮŠŲŪŽ ABC xyz 123"
