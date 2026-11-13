@@ -133,3 +133,18 @@ Note: #33 removed the Brain's own "ask before risky clicks" line and relies on
 click_at's word check, so a click is only as safe as the AI's honest `what`.
 main: 169 passed. Left: /voice/* without the code (now Nojus, Voice), Mac hidden
 extensions (Hands, low), lockout shared by everyone (Lead).
+
+---
+
+# Safety pass #6 — new Hands tools (#38: open_url, close_app, scroll, send_folder_to_phone)
+
+`tests/test_extras.py` (29 tests): open_url only opens http(s) websites (no file:,
+javascript:, ms-settings:, smb:, user:pass@ tricks); close_app asks first, No =
+nothing, refuses AppleScript tricks, never matches HomeCall's own windows; scroll
+validates input; send_folder_to_phone zips without hidden files and refuses whole
+roots and outside paths.
+
+| # | Finding | Who | Status |
+|---|---|---|---|
+| 18 | **send_folder_to_phone follows symlinks inside the folder**: a shortcut in `Desktop/Project` pointing at e.g. `~/.ssh/id_rsa` is zipped and sent to the phone, bypassing the 4-folder rule. Confirmed by test. | Hands | **New, high** |
+| 6 | /voice/* without the code | Voice | Fixed in Voice PR #39 (draft) |

@@ -20,7 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 # Our test files, and the branches that may have a newer copy than main (last wins).
-TEST_FILES = ["test_hands.py", "test_contract.py", "test_safety.py", "test_media.py", "test_power.py", "test_demo_path.py", "test_pointer.py", "test_contract_types.py"]
+TEST_FILES = ["test_hands.py", "test_contract.py", "test_safety.py", "test_media.py", "test_power.py", "test_demo_path.py", "test_pointer.py", "test_contract_types.py", "test_extras.py"]
 TEST_SOURCES = ["origin/main"]  # + my OPEN PR branches, added at run time (merged ones are stale)
 PY = ROOT / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 GH = shutil.which("gh") or str(Path.home() / ".local/bin/gh")

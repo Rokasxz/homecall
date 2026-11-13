@@ -314,7 +314,8 @@ def test_every_tool_is_covered():
     tested = {"list_files", "find_file", "open_file", "send_file_to_phone",
               "delete_file", "open_app", "type_text", "press_keys", "pc_info",
               "read_file_text"}
-    tested |= {"media_key", "lock_pc", "sleep_pc", "click_at"}  # test_media/power/pointer.py
+    tested |= {"media_key", "lock_pc", "sleep_pc", "click_at",  # test_media/power/pointer.py
+               "open_url", "close_app", "scroll", "send_folder_to_phone"}  # test_extras.py
     missing = {f.__name__ for f in actions.TOOLS} - tested  # every file's tools, not just basic.py
     if missing:
         import warnings
