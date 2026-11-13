@@ -87,7 +87,7 @@ def test_download_wildcards_dont_leak(client, tmp_path, token):
 
 # ------------------------------------------------------------- voice (Voice) -----
 
-@pytest.mark.xfail(strict=False, reason="Voice/Server: /voice endpoints don't check the pairing code (TASKS.md)")
+# Was a known gap; fixed by Voice (/voice/* need the pairing code). Now a guard.
 def test_voice_endpoints_need_the_pairing_code(client):
     r = client.get("/voice/speak", params={"text": "hi"})
     assert r.status_code in (401, 403)
