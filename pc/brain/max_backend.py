@@ -33,6 +33,15 @@ _NEUTRAL_DIR = tempfile.mkdtemp(prefix="homecall-brain-")  # no project CLAUDE.m
 LOGIN_HELP = "On this PC, run `claude auth login` once in a Terminal window, then call again."
 
 
+def _as_jpeg(png: bytes) -> bytes:
+    """Re-encode a screenshot as JPEG: much smaller, so faster to send and process."""
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.open(io.BytesIO(png)).convert("RGB").save(buf, "JPEG", quality=70)
+    return buf.getvalue()
+
+
 def _tool_info(func) -> tuple[str, dict]:
     """Description and JSON schema for a Hands function (from its type hints + docstring)."""
     from anthropic import beta_tool  # already a project dependency
@@ -75,6 +84,7 @@ def _options(system: str, extra_tools: list | None = None):
         cwd=_NEUTRAL_DIR,
         cli_path=shutil.which("claude"),          # the logged-in Claude Code; None = bundled copy
         env={"ENABLE_TOOL_SEARCH": "false"},      # few tools: load them up front, saves a round-trip
+        max_buffer_size=16 * 1024 * 1024,         # screenshots in tool results can be big (default 1 MB crashed)
     )
 
 
@@ -107,8 +117,8 @@ class MaxBrain:
               "changes the screen (opening an app, clicking, typing, pressing keys) to check it worked "
               "before the next step. Coordinates for click_at refer to this picture.", {"type": "object", "properties": {}})
         async def look_at_screen(args: dict) -> dict:
-            png = await asyncio.to_thread(screen.capture_png)
-            return {"content": [{"type": "image", "data": base64.b64encode(png).decode(), "mimeType": "image/png"}]}
+            jpg = await asyncio.to_thread(screen.capture_jpeg, 1280, 70)  # JPEG: ~10x smaller than PNG
+            return {"content": [{"type": "image", "data": base64.b64encode(jpg).decode(), "mimeType": "image/jpeg"}]}
 
         @tool("ask_user", "Ask the user a Yes/No question on their phone and wait for the answer. Use it "
               "before sending a message, posting, emailing, or anything you're not sure they want: say "
@@ -146,8 +156,8 @@ class MaxBrain:
 
         content: list[dict] = []
         if screenshot_png:
-            content.append({"type": "image", "source": {"type": "base64", "media_type": "image/png",
-                                                         "data": base64.b64encode(screenshot_png).decode()}})
+            content.append({"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                                         "data": base64.b64encode(_as_jpeg(screenshot_png)).decode()}})
         content.append({"type": "text", "text": text})
 
         async def messages():

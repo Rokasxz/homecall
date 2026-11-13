@@ -64,7 +64,12 @@ function handle(msg) {
     case "reply": addMsg(msg.text, "pc"); speak(msg.text); setStatus(""); break;
     case "file": addFile(msg.name, msg.url); break;
     case "confirm": askConfirm(msg.id, msg.text); break;
-    case "error": wantCall = false; addMsg("Error: " + msg.text, "pc"); $("connectError").textContent = msg.text; break;
+    case "error": {
+      const restarted = retries > 0 && /pairing code/i.test(msg.text);  // reconnect with an old code
+      const text = restarted ? "The PC was restarted: enter the new code shown on the PC." : msg.text;
+      wantCall = false; addMsg(text, "pc"); $("connectError").textContent = text; showScreen("connect");
+      break;
+    }
   }
 }
 
