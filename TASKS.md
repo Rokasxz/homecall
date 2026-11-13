@@ -12,7 +12,7 @@ The "Start prompt" is what you paste into your AI after the kickoff prompt
 - [ ] Day 2, [time]: FEATURE FREEZE
 - [ ] Day 2: demo practised twice on the real laptop + phone
 
-## [Name 1], lead: Server & connection (`pc/server.py`, `pc/screen.py`, `pc/session.py`, shared files)
+## Rokas, lead: Server & connection (`pc/server.py`, `pc/screen.py`, `pc/session.py`, shared files)
 Start prompt: "Read PLAN.md and CLAUDE.md. My area is Server & connection. Task:
 run the app, then make the live view feel smoother: only send a screen frame
 when the screen actually changed (compare with the previous JPEG), and let me
@@ -26,7 +26,7 @@ tune frame rate and JPEG quality from .env. Don't change the message contract."
 - [ ] Day 2: demo laptop prepared (fake CV on Desktop, a draft to "delete", permissions granted)
 Needs from others: Phone: reconnect automatically when the socket drops.
 
-## [Name 2]: Hands (`pc/actions/`)
+## Mantas: Hands (`pc/actions/`)
 Start prompt: "Read PLAN.md and CLAUDE.md, especially contract section 2. My
 area is Hands. Task: test every tool in pc/actions/basic.py on this computer by
 calling them from a small Python script, fix what doesn't work on this OS, then
