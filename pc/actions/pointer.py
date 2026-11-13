@@ -6,10 +6,14 @@ click_at scales the point up to the real screen, e.g. on a 2880x1800 screen
 the picture is 1280x800, so (100, 100) in the picture is (225, 225) on screen.
 """
 import inspect
+import json
+import os
 import re
+import subprocess
+from pathlib import Path
 
 import pc.actions as actions  # for actions.current_session
-from pc.actions.basic import PROGRAM_EXTS, _plain
+from pc.actions.basic import IS_WIN, PROGRAM_EXTS, SPECIAL_FOLDERS, _is_program, _plain
 
 DEFAULT_SHOT_WIDTH = 1280
 
@@ -50,6 +54,85 @@ def looks_like_program(what: str) -> bool:
 
 def _session():
     return actions.current_session
+
+
+def _ask(question: str) -> bool:
+    """Yes/No on the phone. No phone (or one that can't ask) counts as No."""
+    confirm = getattr(_session(), "confirm", None)
+    return bool(confirm and confirm(question))
+
+
+# ------------------------------------------------- what is really under the mouse (Windows) ------
+
+_UIA_SCRIPT = r"""
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, WindowsBase
+$e = [System.Windows.Automation.AutomationElement]::FromPoint((New-Object System.Windows.Point(%d, %d)))
+# In Explorer's details view the point may be on a cell ("Date modified"): use the row (ListItem) it belongs to.
+$walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+$up = $e
+for ($i = 0; $i -lt 4 -and $up; $i++) {
+  if ($up.Current.ControlType.ProgrammaticName -eq 'ControlType.ListItem') { $e = $up; break }
+  $up = $walker.GetParent($up)
+}
+$proc = ''
+try { $proc = (Get-Process -Id $e.Current.ProcessId).ProcessName } catch {}
+[pscustomobject]@{ name = $e.Current.Name; control = $e.Current.ControlType.ProgrammaticName; process = $proc } | ConvertTo-Json -Compress
+"""
+_ICON_CONTROLS = {"ControlType.ListItem", "ControlType.Text", "ControlType.Image", "ControlType.DataItem"}
+
+
+def _thing_under(real_x: int, real_y: int) -> dict:
+    """What Windows says is at this screen point: {"name", "control", "process"}. {} if unknown/not Windows."""
+    if not IS_WIN:
+        return {}
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", _UIA_SCRIPT % (real_x, real_y)],
+                             capture_output=True, text=True, timeout=15,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        info = json.loads(out.stdout.strip() or "{}")
+        return info if isinstance(info, dict) else {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _desktop_folders() -> list[Path]:
+    """Where Desktop icons live: the user's Desktop and the shared (Public) Desktop."""
+    folders = [SPECIAL_FOLDERS.get("Desktop")]
+    public = os.environ.get("PUBLIC")
+    if public:
+        folders.append(Path(public) / "Desktop")
+    return [f for f in folders if f and f.is_dir()]
+
+
+def _real_item(shown_name: str) -> Path | None:
+    """The file or folder behind an icon label: 'Evil' -> Desktop/Evil.exe (Windows hides extensions)."""
+    wanted = shown_name.strip().lower()
+    for folder in _desktop_folders():
+        try:
+            entries = list(folder.iterdir())
+        except OSError:
+            continue
+        for entry in entries:
+            if entry.name.lower() == wanted or (entry.is_file() and entry.stem.lower() == wanted):
+                return entry
+    return None
+
+
+def _icon_worry(real_x: int, real_y: int) -> str:
+    """Why a double-click here needs a Yes/No first, or '' if it's fine.
+
+    Only icons in File Explorer or on the Desktop are checked; double-clicks inside apps are left alone.
+    """
+    under = _thing_under(real_x, real_y)
+    name = (under.get("name") or "").strip()
+    if (under.get("process") or "").lower() != "explorer" or under.get("control") not in _ICON_CONTROLS or not name:
+        return ""
+    item = _real_item(name)
+    if item is None:
+        return f"I can't tell what '{name}' is, and a double-click opens it."
+    if item.is_file() and _is_program(item):
+        return f"It's {item.name}, a program: a double-click starts it."
+    return ""
 
 
 def _shot_width() -> int:
@@ -115,10 +198,15 @@ def click_at(x: int, y: int, what: str, double: bool = False) -> str:
         return f"Error: ({x}, {y}) is outside the screenshot, which is {pic_w} x {pic_h} pixels."
     real_x, real_y = point
     if double and looks_like_program(what):
-        if not _session() or not _session().confirm(f"Double-click '{what}' on the PC? This starts a program."):
+        if not _ask(f"Double-click '{what}' on the PC? This starts a program."):
             return f"Cancelled: '{what}' looks like a program and the user did not confirm starting it."
+    elif double and (worry := _icon_worry(real_x, real_y)):
+        # The AI's description sounded harmless, but the icon under the mouse is a program
+        # (Windows hides ".exe", so "Evil" may really be Evil.exe) or a file we can't identify.
+        if not _ask(f"Double-click '{what}' on the PC? {worry}"):
+            return f"Cancelled: {worry} The user did not confirm."
     elif is_risky(what):
-        if not _session() or not _session().confirm(f"Click '{what}' on the PC?"):
+        if not _ask(f"Click '{what}' on the PC?"):
             return f"Cancelled: the user did not confirm clicking '{what}'."
     if _session():
         _session().status(f"{'Double-clicking' if double else 'Clicking'} {what}")
