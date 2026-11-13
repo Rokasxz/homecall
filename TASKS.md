@@ -41,12 +41,13 @@ safety. Task: write tests/test_hands.py with pytest: one test per function in
 pc/actions/basic.py, using a temporary folder as ALLOWED_ROOTS (see check.py
 for the pattern) and a fake session object; never touch my real files. Run
 them and show me the result. Don't change files outside tests/ and demo/."
-- [ ] `tests/test_hands.py`: every tool in pc/actions tested with a temp folder (find, open, send, delete-asks-first)
-- [ ] `tests/test_contract.py`: fake phone call over the websocket (wrong code refused, right code welcomed, frames arrive, reply comes)
-- [ ] `demo/desktop/`: fake CV PDF, an "old draft" to delete, a notes file; `demo/DEMO-SCRIPT.md`: the 5 requests in order with expected results
-- [ ] Safety pass #1 (demo/SAFETY-PASS.md): try to break it (wrong codes, paths like ../, huge files, weird voice input) and write findings under "Needs from others" for the owner
-- [ ] Device log: each evening, try every feature on a real phone and PC; note what broke, for whom
-- [ ] `demo/PITCH.md`: 1-minute pitch + the honest security answer; practise the demo twice on day 2
+- [x] `tests/test_hands.py`: every tool in pc/actions tested with a temp folder (find, open, send, delete-asks-first)
+- [x] `tests/test_contract.py`: fake phone call over the websocket (wrong code refused, right code welcomed, frames arrive, reply comes)
+- [x] `demo/desktop/`: fake CV PDF, an "old draft" to delete, a notes file; `demo/DEMO-SCRIPT.md`: the 5 requests in order with expected results
+- [x] Safety pass #1 (demo/SAFETY-PASS.md): try to break it (wrong codes, paths like ../, huge files, weird voice input) and write findings under "Needs from others" for the owner
+- [ ] Device log (template ready: demo/DEVICE-LOG.md): each evening, try every feature on a real phone and PC; note what broke, for whom
+- [ ] `demo/PITCH.md` (draft merged; practise left): 1-minute pitch + the honest security answer; practise the demo twice on day 2
+- [x] Extra: tests for every Hands tool incl. media/power/click_at, end-to-end demo test (tests/test_demo_path.py), tests/run_on_prs.py, tests ignore each laptop's .env (tests/conftest.py)
 Needs from others: everyone: tell me when a piece is merged so I test it.
 - Hands (Mantas): `_resolve()` in pc/actions/basic.py raises `ValueError` when a
   path contains a null character (`"\x00"`), so list_files/open_file/send_file_to_phone/
