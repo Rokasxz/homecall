@@ -121,7 +121,7 @@ change the message contract."
 - [ ] Nice: "Calling..." animation, vibration on reply, dark/light theme
 Needs from others: Server: send frames only when the screen changed (less mobile data). Voice: the two endpoints in contract section 6, so the mic works on every phone.
 
-## Nexurent: Voice (`pc/voice/`)
+## nojuzaid-spec: Voice (`pc/voice/`) (taken over from Nexurent)
 Start prompt: "Read PLAN.md and CLAUDE.md, especially contract section 6. My
 area is Voice. Task: implement transcribe() and speak() in pc/voice/engine.py
 with [OpenAI Whisper + TTS, or a local option]. Tell me which library you need

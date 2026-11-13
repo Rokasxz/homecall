@@ -21,8 +21,8 @@ PEOPLE = {
     "Rokasxz": ("Rokas", "Lead + Brain + Server & connection", ["."]),
     "mantas1001": ("Mantas", "Hands", ["pc/actions/"]),
     "Matuuunej": ("Matuuunej", "Phone app", ["phone/"]),
-    "Nexurent": ("Nexurent", "Voice", ["pc/voice/"]),
-    "nojuzaid-spec": ("nojuzaid-spec", "Demo, tests & safety", ["tests/", "demo/"]),
+    "Nexurent": ("Nexurent", "no area right now (Voice went to Nojus)", []),
+    "nojuzaid-spec": ("nojuzaid-spec", "Demo, tests & safety + Voice", ["tests/", "demo/", "pc/voice/"]),
 }
 # The first word of each person's "## ..." heading in TASKS.md.
 TASKS_HEADING = {"Rokas": "Rokasxz", "Mantas": "mantas1001", "Matuuunej": "Matuuunej",
