@@ -5,15 +5,20 @@
     python -m pc.actions.try_tools --keys   also types into a small window of its own and checks every letter
                                             (hands off the keyboard and mouse for ~5 seconds!)
     python -m pc.actions.try_tools --click  also clicks a button in a small window of its own and checks it was pressed
+    python -m pc.actions.try_tools --icon   also double-clicks a harmless test program in its own Explorer window
+                                            (Windows) and checks it asked first and did NOT run
 
 Nothing real is deleted: the only thing removed at the end is the temporary
 test folder this script made itself, and its own copies in pc/outbox.
 """
+import json
 import platform
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
+import types
 import zipfile
 from pathlib import Path
 
@@ -293,6 +298,41 @@ def safe_tests(tmp: Path) -> None:
         r = pointer.click_at(10, 10, "setup.exe icon", double=True)
         check("double-click on a program asks first; 'No' cancels", r, r.startswith("Cancelled"))
         actions.current_session = None
+
+        print("\nclick_at: the real file behind a Desktop icon (faked screen, nothing is clicked)")
+        desk = tmp / "FakeDesktop"
+        desk.mkdir()
+        (desk / "Evil.exe").write_bytes(b"MZ fake")
+        (desk / "notes.md").write_text("notes", encoding="utf-8")
+        (desk / "Projects").mkdir()
+        real_under, real_folders = pointer._thing_under, pointer._desktop_folders
+        pointer._desktop_folders = lambda: [desk]
+        clicks: list = []
+        real_gui = sys.modules.get("pyautogui")
+        sys.modules["pyautogui"] = types.SimpleNamespace(click=lambda *a, **k: clicks.append(a))
+        try:
+            def icon(name: str):
+                return lambda x, y: {"name": name, "control": "ControlType.ListItem", "process": "explorer"}
+            pointer._thing_under = icon("Evil")
+            check("'Evil' icon is found as Evil.exe, a program", pointer._icon_worry(1, 1), "Evil.exe" in pointer._icon_worry(1, 1))
+            actions.current_session = FakeSession(answer=False)
+            r = pointer.click_at(10, 10, "Evil icon", double=True)
+            check("double-click on the 'Evil' icon asks; 'No' = no click", r, r.startswith("Cancelled") and not clicks)
+            pointer._thing_under = icon("notes")
+            check("'notes' icon (notes.md) needs no question", repr(pointer._icon_worry(1, 1)), pointer._icon_worry(1, 1) == "")
+            pointer._thing_under = icon("Projects")
+            check("'Projects' folder icon needs no question", repr(pointer._icon_worry(1, 1)), pointer._icon_worry(1, 1) == "")
+            pointer._thing_under = icon("Mystery thing")
+            check("an icon we can't find asks (to be safe)", pointer._icon_worry(1, 1), "can't tell" in pointer._icon_worry(1, 1))
+            pointer._thing_under = lambda x, y: {"name": "Play", "control": "ControlType.Button", "process": "spotify"}
+            check("double-clicks inside apps are left alone", repr(pointer._icon_worry(1, 1)), pointer._icon_worry(1, 1) == "")
+        finally:
+            pointer._thing_under, pointer._desktop_folders = real_under, real_folders
+            actions.current_session = None
+            if real_gui is not None:
+                sys.modules["pyautogui"] = real_gui
+            else:
+                sys.modules.pop("pyautogui", None)
         actions.current_session = FakeSession(answer=False)
         r = pointer.click_at(10, 10, "Send button")
         check("a risky click asks first; 'No' cancels (nothing clicked)", r, r.startswith("Cancelled"))
@@ -449,6 +489,72 @@ def click_tests() -> None:
         check(label, result, ok)
 
 
+_FIND_ITEM = r"""
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, WindowsBase
+$A = [System.Windows.Automation.AutomationElement]
+$S = [System.Windows.Automation.TreeScope]
+$win = $A::RootElement.FindAll($S::Children, [System.Windows.Automation.Condition]::TrueCondition) |
+       Where-Object { $_.Current.Name -like '*%s*' } | Select-Object -First 1
+if (-not $win) { '{}'; exit }
+$item = $win.FindFirst($S::Descendants, (New-Object System.Windows.Automation.PropertyCondition($A::NameProperty, '%s')))
+if (-not $item) { '{}'; exit }
+$r = $item.Current.BoundingRectangle
+[pscustomobject]@{ x = [int]($r.X + $r.Width / 2); y = [int]($r.Y + $r.Height / 2) } | ConvertTo-Json -Compress
+"""
+_CLOSE_WINDOW = r"""
+(New-Object -ComObject Shell.Application).Windows() | Where-Object { $_.LocationURL -like '*%s*' } | ForEach-Object { $_.Quit() }
+"""
+
+
+def _ps(script: str) -> str:
+    out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                         capture_output=True, text=True, timeout=20)
+    return out.stdout.strip()
+
+
+def icon_tests() -> None:
+    """Double-click a program icon in a fresh Explorer window of our own; with 'No' it must not run."""
+    print("\n--icon: double-clicking a test program in the test's OWN Explorer window (hands off the mouse ~10 s)")
+    if sys.platform != "win32":
+        print("      skipped: this test is written for Windows")
+        return
+    folder = Path(tempfile.mkdtemp(prefix="HomeCallIconTest_"))
+    prog = folder / "HomeCall test program.bat"
+    marker = folder / "ran.txt"
+    prog.write_text('@echo ran> "%~dp0ran.txt"\r\n', encoding="ascii")  # its only effect: write ran.txt here
+    try:
+        subprocess.Popen(["explorer.exe", str(folder)])
+        found = {}
+        for _ in range(20):  # wait up to 10 s for the window and the icon
+            time.sleep(0.5)
+            found = json.loads(_ps(_FIND_ITEM % (folder.name, prog.stem)) or "{}")
+            if found:
+                break
+        if not found:
+            check("the test icon shows up in its Explorer window", "not found; NOT clicking anything", False)
+            return
+        under = pointer._thing_under(found["x"], found["y"])
+        if under.get("process", "").lower() != "explorer" or under.get("name") != prog.stem:
+            check("the test icon is the thing under the mouse", f"under it: {under}; NOT clicking anything", False)
+            return
+        check("Windows sees the icon as 'HomeCall test program' (no .bat shown)", str(under), True)
+        left, top, w, h = pointer._main_screen()
+        pic_w, pic_h = pointer.picture_size(w, h)
+        x, y = round((found["x"] - left) * pic_w / w), round((found["y"] - top) * pic_h / h)
+        actions.current_session = FakeSession(answer=False)  # the "phone" taps No
+        try:
+            r = pointer.click_at(x, y, "test icon", double=True)  # a harmless-sounding description on purpose
+        finally:
+            actions.current_session = None
+        check("double-click on the test program asks; 'No' cancels", r, r.startswith("Cancelled"))
+        time.sleep(1.5)
+        check("the test program did NOT run", "ran.txt exists!" if marker.exists() else "no ran.txt", not marker.exists())
+    finally:
+        _ps(_CLOSE_WINDOW % folder.name)
+        time.sleep(0.5)
+        shutil.rmtree(folder, ignore_errors=True)
+
+
 def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="HomeCallTest_"))
     print(f"HomeCall tools test on {platform.system()} {platform.release()} (temporary folder: {tmp})")
@@ -460,6 +566,8 @@ def main() -> int:
             keys_tests()
         if "--click" in sys.argv:
             click_tests()
+        if "--icon" in sys.argv:
+            icon_tests()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)  # only the temporary folder made above
     failed = [label for ok, label in RESULTS if not ok]
