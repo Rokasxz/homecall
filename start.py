@@ -5,14 +5,14 @@ phone, and (if the ElevenLabs key is in .env) points YOUR voice agent at it.
     python start.py              start everything; Ctrl+C stops everything
     python start.py --local      only on this computer (http://localhost:8000), no tunnel
 
-The first time, it asks for the team's keys (Claude for the AI, ElevenLabs for voice)
-and keeps them in .env on this computer only.
+It gets the team's keys (Claude for the AI, ElevenLabs for voice) by itself from the
+private repo Rokasxz/homecall-keys, with your GitHub login, into .env. It never asks.
 
 Then call this computer from your own phone with the address and code it prints.
 Everyone on the team can do this with their own PC, to test and find bugs.
 (Owner: lead.)
 """
-import getpass
+import base64
 import json
 import os
 import re
@@ -21,6 +21,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -59,50 +60,65 @@ def port_free(port: int) -> bool:
         return s.connect_ex(("127.0.0.1", port)) != 0
 
 
-# ---------------------------------------------------------------- first run ---
+# ---------------------------------------------------------------- team keys ---
 
-def claude_key_problem(key: str) -> str:
-    """'' if the Claude key works (a free check: list the models), else what's wrong."""
+TEAM_KEYS_REPO = "Rokasxz/homecall-keys"   # PRIVATE: only invited teammates can read it
+TEAM_KEYS = ("ANTHROPIC_API_KEY", "ELEVENLABS_API_KEY")
+INVITE = f"https://github.com/{TEAM_KEYS_REPO}/invitations"
+
+
+def team_keys_text() -> str | None:
+    """team.env from the private repo, with this person's GitHub login. None if not allowed (yet)."""
+    gh = shutil.which("gh")
+    if gh:  # the GitHub app's login
+        try:
+            r = subprocess.run([gh, "api", f"repos/{TEAM_KEYS_REPO}/contents/team.env", "--jq", ".content"],
+                               capture_output=True, text=True, timeout=20)
+            if r.returncode == 0 and r.stdout.strip():
+                return base64.b64decode(r.stdout).decode("utf-8")
+        except (OSError, subprocess.SubprocessError, ValueError):
+            pass
+    # No gh: the same git login used for this repo. Never let git ask for a password.
     try:
-        import anthropic
-        anthropic.Anthropic(api_key=key, max_retries=0, timeout=20).models.list(limit=1)
-        return ""
-    except ImportError:
-        return ""  # can't check without the library; the app will say if it's wrong
-    except Exception as e:  # noqa: BLE001
-        name = type(e).__name__
-        if name in ("AuthenticationError", "PermissionDeniedError"):
-            return "Claude didn't accept it: copy the whole key again"
-        if name in ("APIConnectionError", "APITimeoutError"):
-            return "couldn't reach Claude: check the internet"
-        return f"{name}: {str(e)[:80]}"
+        origin = subprocess.run(["git", "remote", "get-url", "origin"], cwd=ROOT,
+                                capture_output=True, text=True, timeout=10).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    host = re.match(r"(https://(?:[^@/]+@)?github\.com/|git@github\.com:)", origin)
+    if not host:
+        return None
+    url = f"{host.group(1)}{TEAM_KEYS_REPO}.git"   # same login style as this repo (https or ssh)
+    quiet = dict(os.environ, GIT_TERMINAL_PROMPT="0", GCM_INTERACTIVE="never",
+                 GIT_SSH_COMMAND="ssh -o BatchMode=yes")
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        try:
+            r = subprocess.run(["git", "clone", "-q", "--depth", "1", url, str(Path(tmp) / "keys")],
+                               env=quiet, capture_output=True, text=True, timeout=40)
+            if r.returncode == 0:
+                return (Path(tmp) / "keys" / "team.env").read_text(encoding="utf-8")
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return None
 
 
-def ask_keys(local_only: bool) -> None:
-    """First run: ask for the team's keys and keep them in .env. Only in a real terminal."""
-    if not sys.stdin.isatty():
-        return
+def get_team_keys() -> str:
+    """Fill in missing team keys from the private repo (no questions). Returns a line for the summary."""
     env = read_env()
-    mode = (env.get("HOMECALL_BRAIN") or "").lower()
-    if not env.get("ANTHROPIC_API_KEY") and mode not in ("max", "echo"):
-        say("\nFirst time here? Paste the team's Claude API key (ask Rokas privately) and press Enter.")
-        say("It stays on this computer only (in .env). Typing is hidden. Just Enter = no AI for now.")
-        for _ in range(2):
-            key = getpass.getpass("  Claude API key: ").strip()
-            if not key:
-                break
-            problem = claude_key_problem(key)
-            if not problem:
-                set_env("ANTHROPIC_API_KEY", key)
-                say("  Saved. The AI is on.")
-                break
-            say(f"  That key didn't work ({problem}). Try again, or just press Enter.")
-    if not local_only and not env.get("ELEVENLABS_API_KEY"):
-        say("\nVoice calls: paste the team's ElevenLabs key (ask Rokas privately). Just Enter = no voice.")
-        key = getpass.getpass("  ElevenLabs key: ").strip()
-        if key:
-            set_env("ELEVENLABS_API_KEY", key)
-            say("  Saved. Your own voice agent is set up in a moment.")
+    missing = [k for k in TEAM_KEYS if not env.get(k)]
+    if not missing:
+        return ""
+    text = team_keys_text()
+    if text is None:
+        return (f"no team keys yet: accept the GitHub invite ({INVITE}), "
+                "be logged in to GitHub on this computer, then start again")
+    got = []
+    for line in text.splitlines():
+        if "=" in line and not line.lstrip().startswith("#"):
+            k, v = (x.strip() for x in line.split("=", 1))
+            if k in missing and v:
+                set_env(k, v)
+                got.append(k)
+    return f"got {len(got)} team key(s) from {TEAM_KEYS_REPO}" if got else ""
 
 
 # -------------------------------------------------------------------- brain ---
@@ -126,8 +142,8 @@ def brain_line(env: dict) -> str:
         return "max (real Claude, through your own Claude login)"
     if mode == "api":
         return "api (real Claude, through ANTHROPIC_API_KEY)"
-    return ("echo (no AI: repeats what you say). For real AI: ask Rokas privately for the team's "
-            "Claude API key, run start.py again and paste it when asked")
+    return ("echo (no AI: repeats what you say). For real AI: accept the GitHub invite "
+            f"({INVITE}) and start again")
 
 
 # ------------------------------------------------------------------- tunnel ---
@@ -188,7 +204,7 @@ def setup_voice(url: str) -> str:
     """Create or update THIS computer's own ElevenLabs agent so it calls this PC."""
     env = read_env()
     if not env.get("ELEVENLABS_API_KEY"):
-        return "off (no ELEVENLABS_API_KEY in .env; ask Rokas for it privately to test voice)"
+        return f"off (no ElevenLabs key yet: accept the GitHub invite {INVITE} and start again)"
     for k, v in env.items():
         os.environ.setdefault(k, v)
     if not env.get("HOMECALL_AGENT_SECRET"):
@@ -270,7 +286,7 @@ def main() -> None:
         say(f"\nPort {PORT} is busy: HomeCall (or something else) is already running. Close it first,")
         say("or set HOMECALL_PORT=8001 in .env.")
         sys.exit(1)
-    ask_keys(local_only)
+    keys_note = get_team_keys()
     env = read_env()
 
     tunnel, url, tunnel_note = (None, None, "local only (--local)") if local_only else start_tunnel()
@@ -294,6 +310,8 @@ def main() -> None:
     say(f"  Pairing code:               {code}")
     say(f"  Brain:  {brain_line(env)}")
     say(f"  Voice:  {voice}")
+    if keys_note:
+        say(f"  Keys:   {keys_note}")
     say("  Log:    homecall.log (each phone visit; private: never post it)")
     say("  Found a bug? GitHub -> Issues -> New issue -> Bug. Never post the address or code.")
     say("=" * 64 + "\n")
