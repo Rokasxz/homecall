@@ -313,8 +313,37 @@ def send_file_to_phone(path: str) -> str:
     return f"Sent {p.name} to the phone."
 
 
+def _to_recycle_bin(p: Path) -> bool:
+    """Move a file to the Windows Recycle Bin / Mac Trash / Linux trash. True if it worked."""
+    try:
+        if IS_WIN:
+            import ctypes
+            from ctypes import wintypes
+
+            class SHFILEOPSTRUCTW(ctypes.Structure):
+                _fields_ = [("hwnd", wintypes.HWND), ("wFunc", wintypes.UINT), ("pFrom", wintypes.LPCWSTR),
+                            ("pTo", wintypes.LPCWSTR), ("fFlags", ctypes.c_ushort), ("fAnyOperationsAborted", wintypes.BOOL),
+                            ("hNameMappings", ctypes.c_void_p), ("lpszProgressTitle", wintypes.LPCWSTR)]
+            FO_DELETE, FOF_SILENT, FOF_NOCONFIRMATION, FOF_ALLOWUNDO, FOF_NOERRORUI = 3, 0x4, 0x10, 0x40, 0x400
+            op = SHFILEOPSTRUCTW(None, FO_DELETE, str(p) + "\0", None,
+                                 FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI, False, None, None)
+            return ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op)) == 0 and not op.fAnyOperationsAborted \
+                and not p.exists()
+        if IS_MAC:
+            posix = str(p).replace("\\", "\\\\").replace('"', '\\"')
+            subprocess.run(["osascript", "-e", f'tell application "Finder" to delete POSIX file "{posix}"'],
+                           capture_output=True, timeout=15)
+            return not p.exists()
+        if shutil.which("gio"):
+            subprocess.run(["gio", "trash", str(p)], capture_output=True, timeout=15)
+            return not p.exists()
+    except Exception:  # noqa: BLE001
+        return False
+    return False
+
+
 def delete_file(path: str) -> str:
-    """Delete a file. Always asks the user to confirm on the phone first.
+    """Delete a file: it goes to the Recycle Bin, so it can be restored from there. Always asks the user to confirm on the phone first.
 
     Args:
         path: Full path of the file to delete.
@@ -322,9 +351,12 @@ def delete_file(path: str) -> str:
     p = _resolve(path)
     if p is None or not p.is_file():
         return f"Error: '{path}' is not a file I can delete."
-    if not _session() or not _session().confirm(f"Delete {p.name}? This cannot be undone."):
+    if not _session() or not _session().confirm(f"Delete {p.name}? It goes to the Recycle Bin."):
         return "Cancelled: the user did not confirm."
-    p.unlink()
+    if not _to_recycle_bin(p):
+        if IS_WIN or IS_MAC:
+            return f"Error: couldn't move {p.name} to the Recycle Bin, so I didn't delete it."
+        p.unlink()  # a Linux PC without a trash (e.g. the test machine): delete as before
     return f"Deleted {p.name}"
 
 

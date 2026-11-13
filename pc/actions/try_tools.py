@@ -9,6 +9,9 @@
                                             (Windows) and checks it asked first and did NOT run
     python -m pc.actions.try_tools --more   also scrolls its own window, opens+closes a fresh Calculator,
                                             and opens example.com in the browser (then closes that tab)
+    python -m pc.actions.try_tools --round2 also click_text / switch_to_app in a test window of its own, sends a
+                                            test file to the Recycle Bin, and changes the volume while muted
+                                            (then puts it back exactly)
 
 Nothing real is deleted: the only thing removed at the end is the temporary
 test folder this script made itself, and its own copies in pc/outbox.
@@ -425,6 +428,51 @@ def safe_tests(tmp: Path) -> None:
         finally:
             extras._windows = real_windows
 
+    print("\nswitch_to_app / set_volume (faked, nothing changes)")
+    got = [w["hwnd"] for w in extras.match_windows("File Explorer", fake_windows, protected=extras.SYSTEM_WINDOWS)]
+    check("switch_to_app may pick File Explorer (close_app may not)", str(got), got == [5])
+    for bad in (-5, 101, "loud"):
+        r = extras.set_volume(bad)
+        check(f"set_volume({bad!r}) gives an error", r, r.startswith("Error"))
+
+    print("\nclick_text (Windows answers are faked, nothing is clicked)")
+    fake_hits = [{"name": "Delete everything", "control": "ControlType.Button", "x": 10, "y": 10, "enabled": True},
+                 {"name": "Play", "control": "ControlType.Button", "x": 20, "y": 20, "enabled": True},
+                 {"name": "Play next", "control": "ControlType.Button", "x": 30, "y": 30, "enabled": True},
+                 {"name": "Išsaugoti", "control": "ControlType.Button", "x": 40, "y": 40, "enabled": False}]
+    names = [h["name"] for h in pointer.rank_matches("play", fake_hits)]
+    check("'play' ranks the exact 'Play' before 'Play next'", str(names), names == ["Play", "Play next"])
+    names = [h["name"] for h in pointer.rank_matches("issaugoti", fake_hits)]
+    check("matching ignores Lithuanian accents (issaugoti -> Išsaugoti)", str(names), names == ["Išsaugoti"])
+    if sys.platform == "win32":
+        clicked: list = []
+        real_find, real_fg, real_gui = pointer.uia.find, pointer._foreground_window, sys.modules.get("pyautogui")
+        pointer.uia.find = lambda hwnd, text: fake_hits
+        pointer._foreground_window = lambda: 1
+        sys.modules["pyautogui"] = types.SimpleNamespace(click=lambda *a, **k: clicked.append(a))
+        try:
+            actions.current_session = FakeSession(answer=False)
+            r = pointer.click_text("Play")
+            check("click_text clicks the button called 'Play'", r, r.startswith("Clicked 'Play'") and clicked == [(20, 20)])
+            r = pointer.click_text("Delete")
+            check("click_text asks before 'Delete everything'; 'No' = no click", r, r.startswith("Cancelled") and len(clicked) == 1)
+            r = pointer.click_text("Išsaugoti")
+            check("a greyed-out button gives an error", r, r.startswith("Error") and "greyed out" in r)
+            r = pointer.click_text("Play", which=5)
+            check("which=5 with 2 matches gives an error", r, r.startswith("Error"))
+            pointer.uia.find = lambda hwnd, text: []
+            r = pointer.click_text("Nothing here")
+            check("no such button gives an error that suggests click_at", r, r.startswith("Error") and "click_at" in r)
+            r = pointer._guard(1, 1, "OK button", False, {"name": "Delete account"})
+            check("click_at asks when Windows says the button is really 'Delete account'", r, r.startswith("Cancelled"))
+        finally:
+            pointer.uia.find, pointer._foreground_window = real_find, real_fg
+            actions.current_session = None
+            if real_gui is not None:
+                sys.modules["pyautogui"] = real_gui
+            else:
+                sys.modules.pop("pyautogui", None)
+
     print("\nscroll (the mouse wheel is faked, nothing scrolls)")
     wheel: list = []
     real_gui = sys.modules.get("pyautogui")
@@ -738,6 +786,142 @@ def more_tests() -> None:
             print("      (closed the example.com tab again)")
 
 
+_TEST_FORM = r"""
+param([string]$log)
+Add-Type -AssemblyName System.Windows.Forms
+$f = New-Object Windows.Forms.Form
+$f.Text = 'HomeCall UIA test'; $f.Width = 760; $f.Height = 360; $f.StartPosition = 'Manual'; $f.Left = 400; $f.Top = 300
+$play = New-Object Windows.Forms.Button; $play.Text = 'Play test'; $play.Left = 40; $play.Top = 60; $play.Width = 300; $play.Height = 140
+$play.Add_Click({ Add-Content -Path $log -Value 'play' })
+$del = New-Object Windows.Forms.Button; $del.Text = 'Delete test'; $del.Left = 400; $del.Top = 60; $del.Width = 300; $del.Height = 140
+$del.Add_Click({ Add-Content -Path $log -Value 'delete' })
+$f.Controls.Add($play); $f.Controls.Add($del)
+$t = New-Object Windows.Forms.Timer; $t.Interval = 120000; $t.Add_Tick({ $f.Close() }); $t.Start()
+[void]$f.ShowDialog()
+"""
+
+
+def round2_tests() -> None:
+    """Real click_text, real-name check, switch_to_app, Recycle Bin, volume and speed, on things the test makes."""
+    print("\n--round2: click_text, switch_to_app, Recycle Bin, volume (hands off the mouse ~30 seconds)")
+    if sys.platform != "win32":
+        print("      skipped: this test is written for Windows")
+        return
+    import ctypes
+    import pyautogui  # noqa: F401  (real pixels, like the app)
+    from pc.actions import uia
+    user32 = ctypes.windll.user32
+    work = Path(tempfile.mkdtemp(prefix="HomeCallRound2_"))
+    log = work / "clicks.txt"
+    form_ps1 = work / "form.ps1"
+    form_ps1.write_text(_TEST_FORM, encoding="utf-8")
+
+    # speed of the background Windows helper
+    t0 = time.time()
+    uia.at(10, 10)
+    first = time.time() - t0
+    t0 = time.time()
+    uia.at(10, 10)
+    second = time.time() - t0
+    check("asking Windows what's under the mouse is fast after the first time",
+          f"first {first:.2f}s, then {second:.3f}s", second < 0.5)
+
+    form = subprocess.Popen(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(form_ps1), str(log)])
+    try:
+        win = None
+        for _ in range(30):
+            time.sleep(0.5)
+            win = next((w for w in extras._windows() if w["title"] == "HomeCall UIA test"), None)
+            if win:
+                break
+        if not win:
+            check("the test window opened", "it didn't; NOT clicking anything", False)
+            return
+
+        def clicks() -> list[str]:
+            return log.read_text(encoding="utf-8").split() if log.exists() else []
+
+        # switch_to_app: put another window of ours in front first
+        import tkinter as tk
+        cover = tk.Tk()
+        cover.title("HomeCall cover window")
+        cover.geometry("900x500+380+280")
+        cover.update()
+        cover.focus_force()
+        cover.update()
+        time.sleep(0.5)
+        r = extras.switch_to_app("HomeCall UIA test")
+        check("switch_to_app brings the test window to the front", r,
+              r.startswith("Switched") and user32.GetForegroundWindow() == win["hwnd"])
+        cover.destroy()
+        time.sleep(0.5)
+        if user32.GetForegroundWindow() != win["hwnd"]:
+            extras.switch_to_app("HomeCall UIA test")
+
+        actions.current_session = FakeSession(answer=False)  # the "phone" taps No
+        try:
+            r = pointer.click_text("Play test")
+            time.sleep(0.6)
+            check("click_text clicks 'Play test' by its name", r, r.startswith("Clicked") and clicks() == ["play"])
+            r = pointer.click_text("Delete test")
+            time.sleep(0.6)
+            check("click_text asks before 'Delete test'; 'No' = not clicked", r,
+                  r.startswith("Cancelled") and "delete" not in clicks())
+            hits = uia.find(win["hwnd"], "Delete test")
+            if hits:
+                left, top, w, h = pointer._main_screen()
+                pic_w, pic_h = pointer.picture_size(w, h)
+                x, y = round((hits[0]["x"] - left) * pic_w / w), round((hits[0]["y"] - top) * pic_h / h)
+                r = pointer.click_at(x, y, "OK button")  # the AI names it wrongly on purpose
+                time.sleep(0.6)
+                check("click_at on 'Delete test' called 'OK button' still asks; 'No' = not clicked", r,
+                      r.startswith("Cancelled") and "delete" not in clicks())
+            else:
+                check("found the Delete test button", "not found", False)
+        finally:
+            actions.current_session = None
+    finally:
+        try:
+            if win:
+                user32.PostMessageW(win["hwnd"], 0x0010, 0, 0)  # close our test window
+            form.wait(timeout=10)
+        except Exception:  # noqa: BLE001
+            form.kill()
+
+    # Recycle Bin: our own test file
+    victim = work / "HomeCall recycle test.txt"
+    victim.write_text("A test file from HomeCall's try_tools. Safe to delete.", encoding="utf-8")
+    saved_roots = basic.ALLOWED_ROOTS
+    basic.ALLOWED_ROOTS = [work]
+    actions.current_session = FakeSession(answer=True)  # the "phone" taps Yes
+    try:
+        r = basic.delete_file(str(victim))
+    finally:
+        basic.ALLOWED_ROOTS = saved_roots
+        actions.current_session = None
+    in_bin = _ps("(New-Object -ComObject Shell.Application).NameSpace(10).Items() | "
+                 "Where-Object { $_.Name -like 'HomeCall recycle test*' } | Measure-Object | Select-Object -ExpandProperty Count")
+    check("delete_file moves the file to the Recycle Bin (not gone for good)", f"{r}; in Recycle Bin: {in_bin}",
+          r.startswith("Deleted") and not victim.exists() and in_bin not in ("", "0"))
+
+    # Volume: change it while staying MUTED (so nothing is heard), then put it back exactly
+    before = uia.volume_get()
+    if before is None:
+        check("can read the volume", "no answer", False)
+    else:
+        level, muted = before
+        test_level = 0.3 if abs(level - 0.3) > 0.05 else 0.5
+        uia.volume_set(test_level, mute=True)
+        now = uia.volume_get()
+        uia.volume_set(level, mute=muted)
+        back = uia.volume_get()
+        check("the volume can be set to an exact level", f"set {test_level:.0%}, read {now[0]:.0%}" if now else "no answer",
+              bool(now) and abs(now[0] - test_level) < 0.02)
+        check("the volume and mute are back as they were", f"was {level:.0%} muted={muted}, now {back}",
+              bool(back) and abs(back[0] - level) < 0.02 and back[1] == muted)
+    shutil.rmtree(work, ignore_errors=True)
+
+
 def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="HomeCallTest_"))
     print(f"HomeCall tools test on {platform.system()} {platform.release()} (temporary folder: {tmp})")
@@ -753,6 +937,8 @@ def main() -> int:
             icon_tests()
         if "--more" in sys.argv:
             more_tests()
+        if "--round2" in sys.argv:
+            round2_tests()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)  # only the temporary folder made above
     failed = [label for ok, label in RESULTS if not ok]

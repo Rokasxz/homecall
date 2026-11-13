@@ -121,12 +121,17 @@ def _app_label(win: dict) -> str:
     return win["exe"]
 
 
-def match_windows(name: str, windows: list[dict]) -> list[dict]:
+# Parts of Windows itself that are never "an app" to switch to.
+SYSTEM_WINDOWS = {"dwm", "winlogon", "csrss", "searchhost", "startmenuexperiencehost", "shellexperiencehost",
+                  "textinputhost", "lockapp"}
+
+
+def match_windows(name: str, windows: list[dict], protected: set[str] = PROTECTED) -> list[dict]:
     """The windows of the app the user means: same program name, else the title starts with / contains it."""
     wanted = basic._plain(name).replace(".exe", "").strip()
     if not wanted:
         return []
-    usable = [w for w in windows if w["exe"] not in PROTECTED]
+    usable = [w for w in windows if w["exe"] not in protected and w["title"] != "Program Manager"]
     for test in (lambda w: w["exe"] == wanted.replace(" ", ""),
                  lambda w: basic._plain(w["title"]) == wanted,
                  lambda w: basic._plain(w["title"]).endswith(" " + wanted) or basic._plain(w["title"]).startswith(wanted),
@@ -179,6 +184,79 @@ def close_app(name: str) -> str:
     if still:
         return f"Asked {label} to close, but {len(still)} window(s) are still open (it may be asking to save). Look at the screen."
     return f"Closed {count}."
+
+
+# -------------------------------------------------------------- switch to app -------
+
+def switch_to_app(name: str) -> str:
+    """Bring an app that is already open to the front, e.g. "Chrome" or "Spotify" (to open one that isn't open, use open_app).
+
+    Args:
+        name: The app or window as the user says it, e.g. "Chrome", "Spotify", "File Explorer".
+    """
+    name = " ".join(str(name or "").split())
+    if not name:
+        return "Error: tell me which app to switch to."
+    if IS_MAC:
+        if any(ch in name for ch in '"\\'):
+            return "Error: that's not an app name."
+        try:
+            ok = subprocess.run(["osascript", "-e", f'tell application "{name}" to activate'],
+                                capture_output=True, text=True, timeout=10).returncode == 0
+        except Exception:  # noqa: BLE001
+            ok = False
+        return f"Switched to {name}." if ok else f"Error: couldn't switch to {name}."
+    if not IS_WIN:
+        return "Error: switch_to_app works on Windows and Mac only."
+    hits = match_windows(name, _windows(), protected=SYSTEM_WINDOWS)
+    if not hits:
+        return f"Error: no open window of '{name}'. To start it, use open_app."
+    target = hits[0]  # the top one = the one used most recently
+    _status(f"Switching to {_app_label(target)}")
+    import ctypes
+    user32 = ctypes.windll.user32
+    hwnd = target["hwnd"]
+    if user32.IsIconic(hwnd):
+        user32.ShowWindow(hwnd, 9)  # SW_RESTORE: un-minimize
+    # Windows only lets the app in front hand over the focus; a tap of Alt makes it allow us.
+    user32.keybd_event(0x12, 0, 0, 0)
+    user32.keybd_event(0x12, 0, 2, 0)
+    user32.SetForegroundWindow(hwnd)
+    time.sleep(0.3)
+    if user32.GetForegroundWindow() != hwnd:
+        return f"Error: Windows didn't let me bring {_app_label(target)} to the front."
+    return f"Switched to {target['title'][:60]}."
+
+
+# ----------------------------------------------------------------- set volume -------
+
+def set_volume(percent: int) -> str:
+    """Set the PC's sound volume to an exact level, e.g. 50 for half. 0 is silent. Also unmutes.
+
+    Args:
+        percent: The volume from 0 to 100.
+    """
+    try:
+        percent = int(round(float(percent)))
+    except (TypeError, ValueError):
+        return "Error: percent must be a number from 0 to 100."
+    if not 0 <= percent <= 100:
+        return "Error: percent must be from 0 to 100."
+    _status(f"Volume {percent}%")
+    if IS_MAC:
+        try:
+            ok = subprocess.run(["osascript", "-e", f"set volume output volume {percent} without output muted"],
+                                capture_output=True, timeout=10).returncode == 0
+        except Exception:  # noqa: BLE001
+            ok = False
+        return f"Volume set to {percent}%." if ok else "Error: couldn't set the volume."
+    if not IS_WIN:
+        return "Error: set_volume works on Windows and Mac only."
+    from pc.actions import uia
+    level = uia.volume_set(percent / 100)
+    if level is None:
+        return "Error: couldn't set the volume on this PC."
+    return f"Volume set to {round(level * 100)}%."
 
 
 # ---------------------------------------------------------------------- scroll ------
@@ -267,4 +345,4 @@ def send_folder_to_phone(path: str) -> str:
     return f"Sent {p.name}.zip ({len(files)} files) to the phone."
 
 
-TOOLS = [open_url, close_app, scroll, send_folder_to_phone]
+TOOLS = [open_url, close_app, switch_to_app, scroll, set_volume, send_folder_to_phone]
