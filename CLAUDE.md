@@ -136,8 +136,10 @@ with `url: /files/<token>`. The server serves it from there.
 - Branch name: `feature/<area>-<short-task>`, e.g. `feature/hands-read-file`.
 - Start each session by pulling the latest `main` into your branch.
 - Commit small and often. The message says what changed and why.
-- When a piece works, open a Pull Request into `main`. A teammate takes a quick
-  look (minutes), then it gets merged. Merge small pieces every 1-2 hours.
+- When a piece works, open a Pull Request into `main` and turn on auto-merge
+  (`gh pr merge --auto --merge`): it merges ITSELF as soon as the `check` and `area`
+  checks are green. Nobody waits for the lead. Merge small pieces every 1-2 hours.
+  If `main` breaks after a merge, the author fixes it first (the coordinator says so in #8).
   Nobody pushes straight to `main`: GitHub enforces it. A PR can be merged only
   when its checks (`check` and `area`) are green.
 - Keep `main` always runnable. If your branch breaks the app, fix that first.

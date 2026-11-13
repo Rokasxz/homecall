@@ -189,7 +189,7 @@ tell me if there is some. 2) Run python check.py; stop if it fails. 3) Commit
 only my files with a short message saying what changed and why. 4) Push my
 branch. 5) Open a Pull Request into main with gh pr create, using a plain-words
 description and the checklist from the template, and give me the link to send
-to the team. Never push to main directly, never force-push.
+to the team. 6) Turn on auto-merge with gh pr merge --auto --merge, so it merges by itself as soon as the GitHub checks are green. Never push to main directly, never force-push.
 ```
 ```
 PROMPT N: a teammate's Pull Request was approved and merged
