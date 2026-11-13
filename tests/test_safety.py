@@ -7,6 +7,8 @@ demo/SAFETY-PASS.md. When the owner fixes one, its test turns into "XPASS"
 (a failure, because strict=True): then remove the xfail mark here.
 """
 import json
+import sys
+import types
 
 import pytest
 from fastapi.testclient import TestClient
@@ -103,7 +105,8 @@ def desktop(tmp_path, monkeypatch):
     return d, launched
 
 
-@pytest.mark.xfail(strict=True, reason="Hands: open_file runs scripts/apps without asking (TASKS.md)")
+# Fixed in Hands PR 13. Not strict, so it passes before and after that merge; drop the mark after.
+@pytest.mark.xfail(strict=False, reason="Hands: open_file runs scripts/apps without asking (fixed in PR 13)")
 @pytest.mark.parametrize("name", ["run-me.command", "run-me.sh", "Evil.app", "setup.exe", "x.bat"])
 def test_open_file_does_not_run_programs_without_asking(desktop, name):
     d, launched = desktop
@@ -116,7 +119,8 @@ def test_open_file_does_not_run_programs_without_asking(desktop, name):
     assert launched == [], "a program was launched with no Yes/No on the phone"
 
 
-@pytest.mark.xfail(strict=True, reason="Hands: open_app starts any program given by full path (TASKS.md)")
+# Fixed in Hands PR 13 (see above).
+@pytest.mark.xfail(strict=False, reason="Hands: open_app starts any program given by full path (fixed in PR 13)")
 @pytest.mark.parametrize("path", ["~/Downloads/Evil.app", "/tmp/evil.sh", "C:\\Users\\me\\Downloads\\evil.exe"])
 def test_open_app_refuses_program_paths(monkeypatch, path):
     """open_app is for app NAMES. A full path would bypass the 4-folder rule and run anything."""
@@ -146,3 +150,63 @@ def test_read_file_text_refuses_symlink_out(tmp_path, monkeypatch):
     monkeypatch.setattr(actions, "current_session", None)
     out = basic.read_file_text(str(d / "link.txt"))
     assert "top secret" not in out
+
+
+# ------------------------------------------------- terminal guard (Hands PR 13) -----
+
+needs_guard = pytest.mark.skipif(not hasattr(basic, "_ok_to_run_in_terminal"),
+                                 reason="terminal guard not in main yet (Hands PR 13)")
+
+
+class _AskSession:
+    def __init__(self, answer=False):
+        self.answer, self.questions, self.emitted = answer, [], []
+
+    def confirm(self, q, timeout=60):
+        self.questions.append(q)
+        return self.answer
+
+    def status(self, t):
+        self.emitted.append(t)
+
+    def emit(self, m):
+        self.emitted.append(m)
+
+
+@pytest.fixture
+def terminal_in_front(monkeypatch):
+    fake = types.SimpleNamespace(pressed=[], typed=[], KEYBOARD_KEYS=None)
+    fake.hotkey = lambda *k: fake.pressed.append(k)
+    fake.typewrite = lambda t, interval=0: fake.typed.append(t)
+    fake.write = fake.typewrite
+    fake.press = lambda *a, **k: fake.pressed.append(a)
+    monkeypatch.setitem(sys.modules, "pyautogui", fake)
+    monkeypatch.setattr(basic, "_terminal_in_front", lambda: True)
+    monkeypatch.setattr(basic, "IS_WIN", False)  # use the pyautogui path, not Windows SendInput
+    s = _AskSession(answer=False)
+    monkeypatch.setattr(actions, "current_session", s)
+    return fake, s
+
+
+@needs_guard
+@pytest.mark.parametrize("key", ["enter", "Enter"])
+def test_enter_in_a_terminal_asks_first(terminal_in_front, key):
+    fake, s = terminal_in_front
+    assert basic.press_keys(key).startswith("Cancelled")
+    assert s.questions and fake.pressed == []
+
+
+@needs_guard
+@pytest.mark.xfail(strict=True, reason="Hands: 'return' is Enter too but skips the terminal guard (TASKS.md)")
+def test_return_key_in_a_terminal_asks_first(terminal_in_front):
+    fake, s = terminal_in_front
+    basic.press_keys("return")
+    assert s.questions and fake.pressed == [], "'return' ran a command with no Yes/No"
+
+
+@needs_guard
+def test_typing_a_command_with_newline_in_a_terminal_asks_first(terminal_in_front):
+    fake, s = terminal_in_front
+    assert basic.type_text("rm -rf ~/Documents\n").startswith("Cancelled")
+    assert fake.typed == []
+

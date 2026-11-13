@@ -20,8 +20,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 # Our test files, and the branches that may have a newer copy than main (last wins).
-TEST_FILES = ["test_hands.py", "test_contract.py", "test_safety.py", "test_media.py"]
-TEST_SOURCES = ["origin/main", "origin/feature/tests-contract", "origin/feature/tests-safety"]
+TEST_FILES = ["test_hands.py", "test_contract.py", "test_safety.py", "test_media.py", "test_power.py"]
+TEST_SOURCES = ["origin/main", "origin/feature/tests-pass3"]
 PY = ROOT / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 GH = shutil.which("gh") or str(Path.home() / ".local/bin/gh")
 
@@ -58,6 +58,9 @@ def run_tests(ref: str, tests: dict[str, str]) -> dict:
         counts = {k: int(n) for n, k in re.findall(r"(\d+) (passed|failed|error|errors|xfailed|xpassed|skipped)", out.splitlines()[-1] if out.strip() else "")}
         problems = re.findall(r"^(?:FAILED|ERROR) (\S+)", out, re.M)
         fixed = re.findall(r"^XPASS (\S+)", out, re.M)  # a known gap that now works
+        strict = re.findall(r"^FAILED (\S+) - \[XPASS\(strict\)\]", out, re.M)  # also fixed
+        problems = [p for p in problems if p not in strict]
+        fixed += strict
         return {"counts": counts, "problems": problems, "fixed": fixed}
     except Exception as e:  # noqa: BLE001
         return {"counts": {}, "problems": [f"could not run: {e}"], "fixed": []}
