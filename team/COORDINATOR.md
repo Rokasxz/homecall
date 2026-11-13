@@ -40,7 +40,16 @@ Stop it any time by saying "stop the coordinator".
   `main` and the contract in CLAUDE.md. If one is wrong, say so in that PR's
   comment (`--note`) and name the owner of that area.
 - Two open PRs that change the same file (`status.py` flags "same files as #N"):
-  say which to merge first; the other updates from main afterwards.
+  say which to merge first; the other updates from main afterwards. A PR that
+  contains another PR's commits ("builds on #N"): give Rokas the merge order.
+- A check that fails only because of ANOTHER person's area (e.g. a test the tests
+  owner still has to write): start the note with "Not your bug", name who fixes
+  it, and say what the author does meanwhile (usually: update from main later).
+- Read the failure before posting "Fix first". One flaky run (e.g. the lead
+  restarting his server) is not a verdict; `review_pr.py` already retries check.py once.
+- `review_pr.py` runs teammates' code with no keys, the echo brain and AppleScript
+  switched off, so it can't use the lead's accounts or control his Mac. Don't run
+  their code on this laptop any other way.
 - The yes/no gates live on GitHub (`check` and `area`, required for merging), so
   nothing depends on this laptop being awake. The coordinator adds the human part:
   combining with main, explanations, next steps.
