@@ -25,7 +25,7 @@ section of TASKS.md.
 | Hands (what the AI can do) | `pc/actions/`                                          | Mantas        |
 | Brain (the AI loop)     | `pc/brain/`                                               | Rokas           |
 | Phone app               | `phone/`                                                  | Matuuunej       |
-| Voice (speech in and out) | `pc/voice/`                                             | Nexurent        |
+| Voice (speech in and out) | `pc/voice/`                                             | nojuzaid-spec (from Nexurent) |
 | Demo, tests & safety    | `tests/`, `demo/`                                         | nojuzaid-spec   |
 
 ## Rules for the AI (Claude, Codex, or any other)
