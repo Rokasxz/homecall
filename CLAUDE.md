@@ -26,7 +26,7 @@ section of TASKS.md.
 | Hands (what the AI can do) | `pc/actions/`                                          | Mantas        |
 | Brain (the AI loop)     | `pc/brain/`                                               | [Name 3]        |
 | Phone app               | `phone/`                                                  | Matuuunej       |
-| Voice (speech in and out) | `pc/voice/`                                             | [Name 5]        |
+| Voice (speech in and out) | `pc/voice/`                                             | Nexurent        |
 
 ## Rules for the AI (Claude, Codex, or any other)
 - Work only inside the area of the person you are helping. If a task needs a
