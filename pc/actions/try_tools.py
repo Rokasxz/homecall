@@ -420,12 +420,33 @@ def safe_tests(tmp: Path) -> None:
     finally:
         media.IS_MAC, media._osascript = real_mac, real_osa
     real_mac_b = basic.IS_MAC
-    basic.IS_MAC = True
+    basic.IS_MAC = True  # pretend to be a Mac; osascript doesn't exist here = "macOS didn't answer"
+    pressed: list = []
+    real_gui = sys.modules.get("pyautogui")
+    sys.modules["pyautogui"] = types.SimpleNamespace(hotkey=lambda *k: pressed.append(k), KEYBOARD_KEYS=None,
+                                                     typewrite=lambda t, interval=0: pressed.append(t))
     try:
-        r = basic._foreground_exe()  # osascript doesn't exist here: must return "" and not crash
-        check("Mac terminal check never crashes without osascript", repr(r), isinstance(r, str))
+        r = basic._foreground_exe()
+        check("Mac: when macOS won't say which app is in front, it's 'unknown' (no crash)", repr(r), r == "unknown")
+        check("Mac: 'unknown' counts like a terminal", str(basic._terminal_in_front()), basic._terminal_in_front())
+        actions.current_session = None
+        r = basic.press_keys("enter")
+        check("Mac: Enter with an unknown app in front and no phone is refused", r,
+              r.startswith("Cancelled") and not pressed)
+        phone = FakeSession(answer=False)
+        actions.current_session = phone
+        r = basic.type_text("rm -rf ~/Documents\n")
+        check("Mac: typing a line + Enter asks 'I can't tell which app is in front'; 'No' = nothing typed", r,
+              r.startswith("Cancelled") and "can't tell" in r and not pressed)
+        r = basic.press_keys("ctrl+c")
+        check("Mac: keys without Enter don't ask", r, r.startswith("Pressed") and pressed == [("ctrl", "c")])
     finally:
         basic.IS_MAC = real_mac_b
+        actions.current_session = None
+        if real_gui is not None:
+            sys.modules["pyautogui"] = real_gui
+        else:
+            sys.modules.pop("pyautogui", None)
     check("Mac script files count as programs", "x.terminal, y.scpt",
           basic._is_program(Path("x.terminal")) and basic._is_program(Path("y.scpt")))
     check("Mac Terminal counts as a terminal", "terminal, iterm2",

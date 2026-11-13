@@ -559,17 +559,28 @@ TERMINALS = {"cmd.exe", "powershell.exe", "pwsh.exe", "windowsterminal.exe", "co
              "terminal", "iterm2", "iterm", "warp", "alacritty", "kitty", "wezterm-gui", "ghostty", "hyper"}
 
 
+UNKNOWN_APP = "unknown"  # the Mac wouldn't say which app is in front: treated like a terminal (ask first)
+_last_front = ""
+
+
 def _foreground_exe() -> str:
-    """Name of the program whose window is in front, e.g. 'notepad.exe' or 'terminal' (Windows and Mac; '' if unknown)."""
+    """Name of the program whose window is in front, e.g. 'notepad.exe' or 'terminal'.
+
+    Mac: "unknown" when macOS doesn't answer (no Automation permission, the popup wasn't answered, a timeout),
+    so the terminal guard asks instead of letting Enter through. Windows: '' if unknown.
+    """
+    global _last_front
     if IS_MAC:
         try:
             out = subprocess.run(
                 ["osascript", "-e",
                  'tell application "System Events" to get name of first application process whose frontmost is true'],
                 capture_output=True, text=True, timeout=2)
-            return out.stdout.strip().lower()
+            name = out.stdout.strip().lower() if out.returncode == 0 else ""
         except Exception:  # noqa: BLE001
-            return ""
+            name = ""
+        _last_front = name or UNKNOWN_APP
+        return _last_front
     if not IS_WIN:
         return ""
     try:
@@ -590,15 +601,22 @@ def _foreground_exe() -> str:
 
 
 def _terminal_in_front() -> bool:
-    return _foreground_exe() in TERMINALS
+    name = _foreground_exe()
+    return name in TERMINALS or name == UNKNOWN_APP
 
 
 def _ok_to_run_in_terminal(what: str) -> str | None:
     """Pressing Enter in a terminal RUNS a command: ask first. Returns an error text, or None if it's fine."""
+    global _last_front
+    _last_front = ""
     if not _terminal_in_front():
         return None
-    if not _session() or not _session().confirm(f"A terminal window is in front. {what}"):
-        return "Cancelled: a terminal window is in front and the user did not confirm running a command there."
+    if _last_front == UNKNOWN_APP:
+        where = "I can't tell which app is in front (macOS didn't allow it), so it could be a terminal."
+    else:
+        where = "A terminal window is in front."
+    if not _session() or not _session().confirm(f"{where} {what}"):
+        return f"Cancelled: {where} The user did not confirm."
     return None
 
 
