@@ -52,8 +52,36 @@ def test_bad_input_is_error_text_and_presses_nothing(keys, bad):
     assert keys.pressed == []
 
 
-def test_mac_says_not_supported_instead_of_crashing(keys, monkeypatch):
+def test_mac_never_crashes_and_never_touches_real_apps(keys, monkeypatch):
+    """On a Mac, media_key either says 'not supported' (old) or talks to Spotify/Music via
+    AppleScript (Hands PR 18). AppleScript is faked so the test never plays real music."""
     monkeypatch.setattr(media, "IS_MAC", True)
+    scripts = []
+    if hasattr(media, "_osascript"):
+        monkeypatch.setattr(media, "_osascript", lambda script: (scripts.append(script) or (False, "")))
+    out = media.media_key("play")
+    assert isinstance(out, str)
+    assert keys.pressed == []  # no real key press on a Mac
+
+
+@pytest.mark.skipif(not hasattr(media, "_osascript"), reason="Mac media support not in main yet (Hands PR 18)")
+def test_mac_plays_in_spotify_when_it_is_open(keys, monkeypatch):
+    monkeypatch.setattr(media, "IS_MAC", True)
+    scripts = []
+
+    def fake(script):
+        scripts.append(script)
+        return True, "true" if script == 'application "Spotify" is running' else ""
+    monkeypatch.setattr(media, "_osascript", fake)
+    out = media.media_key("next")
+    assert "Spotify" in out and not out.startswith("Error"), out
+    assert any("next track" in s for s in scripts)
+
+
+@pytest.mark.skipif(not hasattr(media, "_osascript"), reason="Mac media support not in main yet (Hands PR 18)")
+def test_mac_nothing_open_is_error_text(keys, monkeypatch):
+    monkeypatch.setattr(media, "IS_MAC", True)
+    monkeypatch.setattr(media, "_osascript", lambda script: (True, "false"))
     assert media.media_key("play").startswith("Error")
 
 
