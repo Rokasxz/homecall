@@ -166,3 +166,9 @@ roots and outside paths.
 | 18 | send_folder_to_phone follows symlinks | Hands | Still open |
 | 6 | /voice/* without the pairing code | Voice | **Fixed in #39** (merged) |
 | — | Mac: delete via Finder needs Automation permission for the terminal on first use (macOS asks) | Demo | Note for the demo laptop setup |
+
+**#62 PC window (QR code + pairing code at localhost:8000/pc):** only answers on
+the PC itself (refuses tunnel/proxy headers and other host names, so no
+DNS-rebinding). `/pc/fix/<key>` only opens known System Settings pages (a web
+page on the PC could trigger it, but it can only open those pages: low).
+Guarded by tests in `test_safety.py`.

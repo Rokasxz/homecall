@@ -209,3 +209,33 @@ def test_typing_a_command_with_newline_in_a_terminal_asks_first(terminal_in_fron
     assert basic.type_text("rm -rf ~/Documents\n").startswith("Cancelled")
     assert fake.typed == []
 
+
+
+# ------------------------------------------- PC window (#62): shows the pairing code -----
+
+needs_pc_window = pytest.mark.skipif(not hasattr(server, "this_pc_only"), reason="PC window not in main yet (#62)")
+
+
+@needs_pc_window
+@pytest.mark.parametrize("path", ["/pc", "/pc/info"])
+@pytest.mark.parametrize("headers", [
+    {"cf-ray": "8abc", "cf-connecting-ip": "1.2.3.4"},          # came through the cloudflared tunnel
+    {"x-forwarded-for": "1.2.3.4"},                              # came through some proxy
+    {"host": "evil.example"},                                    # DNS-rebinding style: wrong host name
+])
+def test_pc_window_never_answers_from_outside(client, path, headers):
+    """The PC window shows the pairing code: it must only open on the PC itself."""
+    r = client.get(path, headers=headers)
+    assert r.status_code == 404
+    assert server.PAIR_CODE not in r.text
+
+
+@needs_pc_window
+def test_pc_window_fix_only_opens_known_settings(client, monkeypatch):
+    from pc import permissions
+    opened = []
+    monkeypatch.setattr(permissions.subprocess, "run", lambda cmd, **k: opened.append(cmd))
+    monkeypatch.setattr(permissions, "IS_MAC", True)
+    permissions.open_settings("rm -rf ~")          # not a known permission name
+    permissions.open_settings("../../etc/passwd")
+    assert opened == []
