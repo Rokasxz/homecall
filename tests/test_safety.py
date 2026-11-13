@@ -107,8 +107,7 @@ def desktop(tmp_path, monkeypatch):
     return d, launched
 
 
-# Fixed in Hands PR 13. Not strict, so it passes before and after that merge; drop the mark after.
-@pytest.mark.xfail(strict=False, reason="Hands: open_file runs scripts/apps without asking (fixed in PR 13)")
+# Was a known gap; fixed in Hands PR 13. Now a guard: must stay green.
 @pytest.mark.parametrize("name", ["run-me.command", "run-me.sh", "Evil.app", "setup.exe", "x.bat"])
 def test_open_file_does_not_run_programs_without_asking(desktop, name):
     d, launched = desktop
@@ -121,8 +120,7 @@ def test_open_file_does_not_run_programs_without_asking(desktop, name):
     assert launched == [], "a program was launched with no Yes/No on the phone"
 
 
-# Fixed in Hands PR 13 (see above).
-@pytest.mark.xfail(strict=False, reason="Hands: open_app starts any program given by full path (fixed in PR 13)")
+# Was a known gap; fixed in Hands PR 13. Now a guard: must stay green.
 @pytest.mark.parametrize("path", ["~/Downloads/Evil.app", "/tmp/evil.sh", "C:\\Users\\me\\Downloads\\evil.exe"])
 def test_open_app_refuses_program_paths(monkeypatch, path):
     """open_app is for app NAMES. A full path would bypass the 4-folder rule and run anything."""
