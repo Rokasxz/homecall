@@ -108,7 +108,13 @@ def collect() -> dict:
         tasks_ok, tasks_note = (True, "")
         if "TASKS.md" in files and "." not in PEOPLE.get(author, ("", "", []))[2] and not pr["isCrossRepository"]:
             tasks_ok, tasks_note = tasks_md_edits_ok(author, "origin/main", head)
-        checks = pr.get("statusCheckRollup") or []
+        # A re-run keeps the old result too; only the newest run of each check counts (like GitHub's Merge button).
+        newest: dict[str, dict] = {}
+        for c in pr.get("statusCheckRollup") or []:
+            name = c.get("name") or c.get("context") or "?"
+            if name not in newest or (c.get("startedAt") or "") >= (newest[name].get("startedAt") or ""):
+                newest[name] = c
+        checks = list(newest.values())
         if not checks:
             ci = "no checks yet"
         elif any(c.get("status") not in (None, "COMPLETED") for c in checks):
