@@ -140,6 +140,9 @@ def collect() -> dict:
         name = ref.removeprefix("origin/")
         if name in ("main", "HEAD", "origin") or name in pr_branches:
             continue
+        merged = subprocess.run(["git", "merge-base", "--is-ancestor", sha, "origin/main"]).returncode == 0
+        if merged:
+            continue  # already in main: not "work without a PR"
         login = (gh_json("api", f"repos/{REPO}/commits/{sha}").get("author") or {}).get("login")
         branches.append({"branch": name, "author": login, "date": date})
 
