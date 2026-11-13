@@ -57,11 +57,11 @@ def _make_tool(func):
     return tool(func.__name__, description, schema)(handler)
 
 
-def _options(system: str):
+def _options(system: str, extra_tools: list | None = None):
     from claude_agent_sdk import ClaudeAgentOptions, create_sdk_mcp_server
 
     server = create_sdk_mcp_server(name=SERVER, version="1.0.0",
-                                   tools=[_make_tool(f) for f in actions.TOOLS])
+                                   tools=[_make_tool(f) for f in actions.TOOLS] + (extra_tools or []))
     return ClaudeAgentOptions(
         system_prompt=system,
         model=MODEL,
@@ -95,8 +95,34 @@ class MaxBrain:
 
     async def _connect(self) -> None:
         from claude_agent_sdk import ClaudeSDKClient
-        self.client = ClaudeSDKClient(options=_options(self.system))
+        self.client = ClaudeSDKClient(options=_options(self.system, self._brain_tools()))
         await self.client.connect()
+
+    def _brain_tools(self) -> list:
+        """Tools for the Brain itself: see the screen again, and ask the user Yes/No."""
+        from claude_agent_sdk import tool
+        from pc import screen
+
+        @tool("look_at_screen", "Take a fresh screenshot of the PC screen. Use it after every action that "
+              "changes the screen (opening an app, clicking, typing, pressing keys) to check it worked "
+              "before the next step. Coordinates for click_at refer to this picture.", {"type": "object", "properties": {}})
+        async def look_at_screen(args: dict) -> dict:
+            png = await asyncio.to_thread(screen.capture_png)
+            return {"content": [{"type": "image", "data": base64.b64encode(png).decode(), "mimeType": "image/png"}]}
+
+        @tool("ask_user", "Ask the user a Yes/No question on their phone and wait for the answer. Use it "
+              "before sending a message, posting, emailing, or anything you're not sure they want: say "
+              "exactly what will happen, e.g. 'Send \"hi\" to Tomas on Discord?'.",
+              {"type": "object", "properties": {"question": {"type": "string", "description": "The Yes/No question."}},
+               "required": ["question"]})
+        async def ask_user(args: dict) -> dict:
+            if self.session is None:
+                return {"content": [{"type": "text", "text": "No phone connected: don't do it."}], "is_error": True}
+            ok = await asyncio.to_thread(self.session.confirm, str(args.get("question", ""))[:300])
+            return {"content": [{"type": "text", "text": "The user tapped Yes." if ok else
+                                 "The user tapped No (or didn't answer): don't do it."}]}
+
+        return [look_at_screen, ask_user]
 
     def ask(self, text: str, screenshot_png: bytes | None, session, timeout: float = 180) -> str:
         """Called from Brain.handle (a worker thread). Returns the reply to speak."""
