@@ -197,7 +197,6 @@ def test_enter_in_a_terminal_asks_first(terminal_in_front, key):
 
 
 @needs_guard
-@pytest.mark.xfail(strict=True, reason="Hands: 'return' is Enter too but skips the terminal guard (TASKS.md)")
 def test_return_key_in_a_terminal_asks_first(terminal_in_front):
     fake, s = terminal_in_front
     basic.press_keys("return")
