@@ -25,6 +25,11 @@ Stop it any time by saying "stop the coordinator".
    - **Next step for each person**: ONE concrete sentence each, based on their
      TASKS.md section and what is already merged. Someone with nothing pushed
      for over 2 hours: suggest they push what they have (PROMPT M).
+     **Format matters:** each person's AI reads its own line at session start
+     (`.claude/hooks/briefing.sh`), so write exactly ONE line per person that starts
+     with `- **Rokas:**`, `- **Mantas:**`, `- **Matuuunej:**`, `- **Nexurent:**` or
+     `- **Nojus:**` (max ~1200 characters, no sub-bullets), and no other line in
+     the issue may start that way.
    - **Risks**: contract changes, PRs waiting more than an hour, people blocked
      on each other, time left before the feature freeze (not set yet: Rokas decides).
 4. **Shout only when it matters**: add a comment on the status issue (which
