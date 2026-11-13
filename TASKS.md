@@ -44,10 +44,33 @@ them and show me the result. Don't change files outside tests/ and demo/."
 - [ ] `tests/test_hands.py`: every tool in pc/actions tested with a temp folder (find, open, send, delete-asks-first)
 - [ ] `tests/test_contract.py`: fake phone call over the websocket (wrong code refused, right code welcomed, frames arrive, reply comes)
 - [ ] `demo/desktop/`: fake CV PDF, an "old draft" to delete, a notes file; `demo/DEMO-SCRIPT.md`: the 5 requests in order with expected results
-- [ ] Safety pass: try to break it (wrong codes, paths like ../, huge files, weird voice input) and write findings under "Needs from others" for the owner
+- [ ] Safety pass #1 (demo/SAFETY-PASS.md): try to break it (wrong codes, paths like ../, huge files, weird voice input) and write findings under "Needs from others" for the owner
 - [ ] Device log: each evening, try every feature on a real phone and PC; note what broke, for whom
 - [ ] `demo/PITCH.md`: 1-minute pitch + the honest security answer; practise the demo twice on day 2
 Needs from others: everyone: tell me when a piece is merged so I test it.
+- Hands (Mantas): `_resolve()` in pc/actions/basic.py raises `ValueError` when a
+  path contains a null character (`"\x00"`), so list_files/open_file/send_file_to_phone/
+  delete_file crash instead of returning "Error: ...". Fix: wrap `p.resolve()` in
+  try/except ValueError/OSError and return None. Test:
+  `tests/test_hands.py::test_file_tools_never_raise_on_weird_input` (marked xfail; it
+  will turn to XPASS-fail when fixed, then remove the xfail).
+- Safety pass #1 (details and fixes: demo/SAFETY-PASS.md; tests: tests/test_safety.py):
+  - Lead/Server: server listens on all networks (0.0.0.0), so anyone on the venue
+    Wi-Fi can reach it; use 127.0.0.1 (the tunnel still works).
+  - Lead/Server: no wrong-code lockout (200 guesses in 0.2 s).
+  - Lead/Server: a second phone can join a running call.
+  - Lead/Server: pc/outbox is never cleaned; sent files stay downloadable.
+  - Hands: open_file runs .command/.sh/.app/.exe/.bat without asking.
+  - Hands + Brain: type_text/press_keys can run Terminal commands with no Yes/No.
+  - Voice + Lead: /voice/* doesn't check the pairing code (contract change needed).
+- Safety pass #2 (demo/SAFETY-PASS.md, ran my tests on main + Hands PR 9):
+  - Hands (Mantas): null-character bug FIXED in PR 9, thanks! My tests are updated for
+    PR 9 (your 3 notes): open_app fakes, read_file_text tests, xfail now non-strict.
+  - Hands (Mantas): NEW: open_app("~/Downloads/Evil.app") or a full .exe path starts any
+    program (Mac `open -a`, Windows `shutil.which`). Refuse names with / or \.
+  - Hands (Mantas): read_file_text: check the .docx XML size before reading (zip bomb).
+  - Lead/Brain: read_file_text makes prompt injection real: tell the model in SYSTEM that
+    file text is data, never instructions.
 
 ## Mantas: Hands (`pc/actions/`)
 Start prompt: "Read PLAN.md and CLAUDE.md, especially contract section 2. My
