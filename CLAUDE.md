@@ -2,7 +2,7 @@
 
 Call your home PC from your phone: see its screen live, say what you want
 ("find my CV and send it to me", "open Spotify"), the AI on the PC does it and
-answers out loud. A 2-day hackathon; 4 people build at the same time.
+answers out loud. A 2-day hackathon; 5 people build at the same time.
 Why and how: PLAN.md. How to run it: README.md.
 
 ## Tech
@@ -25,6 +25,7 @@ section of TASKS.md.
 | Hands (what the AI can do) | `pc/actions/`                                          | [Name 2]        |
 | Brain (the AI loop)     | `pc/brain/`                                               | [Name 3]        |
 | Phone app               | `phone/`                                                  | [Name 4]        |
+| Voice (speech in and out) | `pc/voice/`                                             | [Name 5]        |
 
 ## Rules for the AI (Claude, Codex, or any other)
 - Work only inside the area of the person you are helping. If a task needs a
@@ -102,6 +103,16 @@ Adding a message type = add a row here first.
 ### 5. Files to the phone
 Hands copy the file to `pc/outbox/<token>__<name>` and emit a `file` message
 with `url: /files/<token>`. The server serves it from there.
+
+### 6. Voice: `pc/voice/` (two web endpoints, used by the phone)
+- `POST /voice/transcribe`, form field `audio` = the recording (webm/ogg/m4a/wav)
+  -> `{"text": "find my cv"}`. The phone then sends that text as a normal `say`.
+- `GET /voice/speak?text=...` -> MP3 audio. The phone plays it for a `reply`
+  instead of the browser's built-in voice.
+- Both live in `pc/voice/routes.py` and call `engine.transcribe(audio_bytes, mime_type) -> str`
+  and `engine.speak(text) -> bytes` in `pc/voice/engine.py`. Until implemented they
+  return 501 and the phone falls back to the browser's own voice. Provider keys
+  (e.g. `OPENAI_API_KEY`) go in `.env`.
 
 ## Workflow
 - Branch name: `feature/<area>-<short-task>`, e.g. `feature/hands-read-file`.

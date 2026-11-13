@@ -69,7 +69,21 @@ change the message contract."
 - [ ] File card with a download button; confirm card that's hard to miss
 - [ ] Reconnect automatically if the socket drops; remember the code (localStorage)
 - [ ] Nice: "Calling..." animation, vibration on reply, dark/light theme
-Needs from others: Server: send frames only when the screen changed (less mobile data).
+Needs from others: Server: send frames only when the screen changed (less mobile data). Voice: the two endpoints in contract section 6, so the mic works on every phone.
+
+## [Name 5]: Voice (`pc/voice/`)
+Start prompt: "Read PLAN.md and CLAUDE.md, especially contract section 6. My
+area is Voice. Task: implement transcribe() and speak() in pc/voice/engine.py
+with [OpenAI Whisper + TTS, or a local option]. Tell me which library you need
+before adding it, so I can ask the lead. Test with: curl -F audio=@sample.webm
+http://localhost:8000/voice/transcribe and open
+http://localhost:8000/voice/speak?text=hello in the browser."
+- [ ] Pick the provider with the lead (OpenAI key? or local faster-whisper + edge-tts) and get it approved in requirements.txt
+- [ ] `transcribe()` works on a recording from a phone browser (webm from Android, m4a from iPhone)
+- [ ] `speak()` returns MP3; sounds natural; under 2 seconds for one sentence
+- [ ] Agree with Phone: record with MediaRecorder -> POST /voice/transcribe -> send `say`; play /voice/speak for replies
+- [ ] Nice: language auto-detect; a short "listening" beep file for the phone
+Needs from others: Phone: the record button and audio playback; Lead: OK for the libraries.
 
 ## Feature freeze: [day 2, time]
 After this only bug fixes and demo polish.

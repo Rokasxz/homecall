@@ -10,13 +10,14 @@ see the PC's screen live, say "find my CV and send it to me", and the AI on the
 PC does it and answers out loud. Full plan: PLAN.md. The exact messages and
 function shapes we all share ("the contract"): CLAUDE.md.
 
-Four areas, one owner each. You only ever edit your own folder:
+Five areas, one owner each. You only ever edit your own folder:
 | Area | Folder |
 |---|---|
 | Server & connection (lead) | `pc/server.py`, `pc/screen.py`, `pc/session.py`, shared files |
 | Hands (what the AI can do) | `pc/actions/` |
 | Brain (the AI loop) | `pc/brain/` |
 | Phone app | `phone/` |
+| Voice (speech in and out) | `pc/voice/` |
 
 ## 1. Install and log in (once, 20 minutes)
 1. **GitHub**: free account at github.com. Send the lead your username, then
@@ -139,6 +140,62 @@ made-up data in the right shape so I can keep working. Name it clearly (fake_...
 and list what to change when the real one is merged.
 ```
 
+## 4b. Let your AI do the git for you
+You don't have to type git commands. These prompts make your AI do it and
+explain each step. Use them in the project folder.
+
+Once, on a new computer:
+```
+PROMPT K: set up git and GitHub for me
+Set up git on this computer for our team project. Use the name [MY NAME] and
+the email [MY GITHUB EMAIL] for my commits (git config --global). Then help me
+log in to GitHub: check if the GitHub CLI (gh) is installed, install it if not
+(Mac: brew install gh, Windows: winget install GitHub.cli), and then give me
+the exact command to run MYSELF in a normal terminal window:
+gh auth login --hostname github.com --git-protocol https --web
+Explain what will happen (press Y, press Enter, a code appears, the browser
+opens, paste the code). Never ask me for a password or a token, and don't try
+to run the login yourself: it needs my keyboard.
+```
+(The login needs a real terminal window you can type in: Mac "Terminal" app,
+Windows "Terminal" or "PowerShell". After it says "Logged in as ...", you're done.)
+
+Every session:
+```
+PROMPT L: start my session
+Start my work session: switch to main, pull the latest changes, then
+[create a new branch feature/[area]-[task] / switch to my branch feature/[...] and
+pull main into it]. Activate the virtual environment and run python check.py.
+Tell me in plain words what changed on main since last time that affects my
+area ([FOLDER]). Then wait for my task.
+```
+```
+PROMPT M: commit, push and open a Pull Request
+I'm done with this piece. 1) Show me git status and list the changed files;
+anything outside [FOLDER] (except my section of TASKS.md) must NOT be included,
+tell me if there is some. 2) Run python check.py; stop if it fails. 3) Commit
+only my files with a short message saying what changed and why. 4) Push my
+branch. 5) Open a Pull Request into main with gh pr create, using a plain-words
+description and the checklist from the template, and give me the link to send
+to the team. Never push to main directly, never force-push.
+```
+```
+PROMPT N: a teammate's Pull Request was approved and merged
+A teammate merged into main. Pull the latest main into my branch, run python
+check.py and the app, and tell me if anything of mine broke or if the contract
+in CLAUDE.md changed. Don't fix anything yet, just report.
+```
+Lead only:
+```
+PROMPT O: review a teammate's Pull Request
+Review Pull Request #[NUMBER] with gh (gh pr view, gh pr diff). Check: 1) every
+changed file is inside their area ([FOLDER]) or their own TASKS.md section;
+2) no secrets, no .env, no new libraries without my OK; 3) check out the branch
+in a temporary worktree, run python check.py and the app, and report;
+4) if the contract in CLAUDE.md changed, say exactly what. Then tell me
+"safe to merge" or list what must change, in plain words. Don't merge it yourself.
+```
+
 ## 5. How to test (what "it works" means)
 Everyone, before every Pull Request: `python check.py` must show 0 failed.
 Then, by area:
@@ -163,6 +220,11 @@ type these three, one by one: "what's on my desktop", "find my cv and send it
 to me", "delete the old draft". Check: replies are 1-2 spoken sentences, the
 status line shows the tools it used, the second one runs find + send without
 asking, the third one asks Yes/No on the page.
+
+**Voice**: run the app and open http://localhost:8000/voice/speak?text=hello in
+the browser: you should hear or download audio. For transcribe, record a short
+clip on your phone (or use any .webm/.m4a file) and `curl -F audio=@clip.m4a
+http://localhost:8000/voice/transcribe` must return the words.
 
 **Phone app**: test in the laptop browser at http://localhost:8000 first, then on
 a real phone through the lead's tunnel address. Check: live view, hold-to-talk

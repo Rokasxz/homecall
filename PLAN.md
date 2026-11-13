@@ -67,7 +67,7 @@ itself serves, so there's nothing to install on the phone.
 | Python + FastAPI on the PC | Everyone's AI writes Python well; FastAPI gives websockets and file downloads in a few lines. |
 | Plain HTML/JS for the phone, no framework, no build step | Four vibecoders, two days: nothing to configure, nothing to break. Open the page, it works. |
 | Screenshots over websocket instead of WebRTC video | Simple and good enough for a demo. Upgrade later if ever. |
-| Browser speech recognition + speech synthesis | Zero cost, zero setup. Fallback: typing. |
+| Browser speech recognition + speech synthesis first; server-side speech (the Voice area) as the reliable path | Zero cost, zero setup to start. The Voice person adds Whisper-style transcription and TTS on the PC so voice works on every phone. Last fallback: typing. |
 | Claude API with tool use for the brain | The Hands write plain Python functions; the SDK turns them into tools automatically. Model: `claude-opus-5-5`; switch to `claude-sonnet-5-5` with one env var if replies feel slow. |
 | cloudflared quick tunnel | Free https address, no account. Meant for testing only (no uptime promise), which is exactly a hackathon. |
 
@@ -90,16 +90,17 @@ CUT (don't build these in 2 days):
 - Real video / WebRTC. - Native iOS/Android app. - Accounts, multiple users.
 - Installer. - Running shell commands by voice (too dangerous for a demo).
 
-## Four areas, four people, at the same time
+## Five areas, five people, at the same time
 | Area | Folder | What "done" looks like on day 2 |
 |---|---|---|
 | Server & connection (lead) | `pc/server.py`, `pc/screen.py`, `pc/session.py`, shared files | Phone on mobile data connects through the tunnel, screen streams smoothly, files download. Runs the integration check after each merge. |
 | Hands | `pc/actions/` | Each tool works on the demo PC; 2-3 extra tools (read file text, click, media keys). |
 | Brain | `pc/brain/` | Real Claude replies; multi-step requests ("find X and send it") work in one go; short spoken answers. |
 | Phone app | `phone/` | Looks like a call; mic and speaker work on a real phone; confirm and file cards look good. |
+| Voice | `pc/voice/` | Speech-to-text and text-to-speech on the PC (two web endpoints), so voice works on every phone, including iPhones where the browser's own recognizer doesn't. |
 
 The skeleton already runs end to end (in "echo mode" without an API key), so
-all four start at once; nobody waits for anybody. The exact messages and
+all five start at once; nobody waits for anybody. The exact messages and
 function shapes the areas share are in CLAUDE.md ("the contract").
 
 ## The two days

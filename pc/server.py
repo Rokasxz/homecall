@@ -32,6 +32,7 @@ _load_dotenv()
 from pc import screen  # noqa: E402  (after .env so settings apply)
 from pc.brain.agent import Brain  # noqa: E402
 from pc.session import Session  # noqa: E402
+from pc.voice.routes import router as voice_router  # noqa: E402
 
 PAIR_CODE = os.environ.get("HOMECALL_CODE") or f"{secrets.randbelow(10**6):06d}"
 PORT = int(os.environ.get("HOMECALL_PORT", "8000"))
@@ -42,6 +43,7 @@ PHONE_DIR = ROOT / "phone"
 
 app = FastAPI(title="HomeCall")
 app.mount("/static", StaticFiles(directory=PHONE_DIR), name="static")
+app.include_router(voice_router)  # /voice/transcribe and /voice/speak (owner: Voice)
 
 
 @app.get("/")

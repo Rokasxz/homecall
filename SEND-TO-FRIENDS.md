@@ -19,19 +19,20 @@ Hey! Hackathon plan.
 
 THE IDEA: "HomeCall". An app on your home PC that you can CALL from your phone when you're away. You see the PC's screen live, you say "find my CV and send it to me" or "open Spotify", and the AI on the PC does it and answers out loud. The skeleton already runs; we build the real thing in 2 days.
 
-HOW WE WORK (so 4 people with AI don't wreck each other's work): the project lives on GitHub. Each of us owns ONE area and works on their OWN branch (= your own copy). Nobody edits someone else's area. A rules file tells everyone's AI the same rules, and a guard blocks your AI from editing files outside your area. We merge small pieces every 1-2 hours.
+HOW WE WORK (so 5 people with AI don't wreck each other's work): the project lives on GitHub. Each of us owns ONE area and works on their OWN branch (= your own copy). Nobody edits someone else's area. A rules file tells everyone's AI the same rules, and a guard blocks your AI from editing files outside your area. We merge small pieces every 1-2 hours.
 
-THE FOUR AREAS (tell me which you want, first come first served):
+THE FIVE AREAS (tell me which you want, first come first served):
 1. Server & connection: the Python server on the PC, the live screen stream, the tunnel that lets the phone reach the PC from anywhere. Also the integrator. ([I'll take this unless someone really wants it.])
 2. Hands: the Python functions the AI can use on the PC: find/open/send files, open apps, keyboard.
 3. Brain: the AI loop (Claude API): turns what you say into tool calls and a short spoken reply.
 4. Phone app: the web page on the phone: live view, hold-to-talk mic, speaker, Yes/No and download cards.
+5. Voice: speech-to-text and text-to-speech on the PC (Whisper-style), so talking works on every phone, iPhone included.
 
 PLEASE DO TODAY:
 1. Free GitHub account (github.com), send me your username.
 2. Install Git (git-scm.com, Windows: "Git for Windows") and Python 3.11 or newer (python.org, Windows: tick "Add Python to PATH").
 3. Your AI coding tool, one of: Claude Code (the Claude desktop app, "Code" tab) or Codex (ChatGPT's coding tool: install Node from nodejs.org, then `npm install -g @openai/codex`, sign in with your ChatGPT account). Plain ChatGPT in the browser also works but is slower, I'll explain.
-4. Whoever takes Brain: get an Anthropic API key at console.anthropic.com (a few dollars of credit is plenty for the weekend).
+4. Whoever takes Brain: get an Anthropic API key at console.anthropic.com (a few dollars of credit is plenty for the weekend). Whoever takes Voice: an OpenAI API key (platform.openai.com) unless you prefer a free local option.
 
 SCHEDULE: Day 1, hour 1, all together: everyone runs the app on their own laptop. Then everyone builds their own area, we merge every 1-2 hours, evening: full demo from a phone. Day 2: finish and polish; [3-4] hours before the deadline we FREEZE and practise the demo.
 ------------------------------------------------
@@ -46,7 +47,7 @@ Open the project in Claude Code and paste (fill the brackets):
 ```
 Read CLAUDE.md and TASKS.md. Replace the placeholders: [Name 1] = [your name]
 (lead, Server & connection), [Name 2] = [name] (Hands), [Name 3] = [name]
-(Brain), [Name 4] = [name] (Phone app), and [day 2, time] = [the feature
+(Brain), [Name 4] = [name] (Phone app), [Name 5] = [name] (Voice), and [day 2, time] = [the feature
 freeze time]. Change nothing else. Show me the diff.
 ```
 
@@ -94,6 +95,7 @@ Your areas:
 [Name 2]: Hands -> pc/actions/
 [Name 3]: Brain -> pc/brain/
 [Name 4]: Phone app -> phone/
+[Name 5]: Voice -> pc/voice/
 
 Do this once, in this order (15 min):
 

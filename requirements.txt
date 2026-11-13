@@ -4,3 +4,4 @@ mss
 pillow
 pyautogui
 anthropic
+python-multipart

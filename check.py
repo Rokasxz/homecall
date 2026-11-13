@@ -143,6 +143,15 @@ def check_brain():
         fail("pc/brain/agent.py imports", f"{type(e).__name__}: {e}")
 
 
+def check_voice():
+    section("Voice")
+    try:
+        from pc.voice import engine, routes  # noqa: F401
+        ok("pc/voice imports", "endpoints answer 501 until engine.py is implemented")
+    except Exception as e:  # noqa: BLE001
+        fail("pc/voice imports", f"{type(e).__name__}: {e}")
+
+
 def check_phone():
     section("Phone app")
     for f in ["index.html", "app.js", "style.css"]:
@@ -225,6 +234,7 @@ def main():
     check_screen()
     check_tools()
     check_brain()
+    check_voice()
     check_phone()
     if "FAIL" in RESULTS:
         print("\nSkipping the end-to-end call until the FAILs above are fixed.")

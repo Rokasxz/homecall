@@ -56,5 +56,6 @@ pc/screen.py     screenshots                                         (Server & c
 pc/session.py    one call; talk back to the phone from anywhere      (Server & connection)
 pc/actions/      what the AI can DO on the PC: the tools             (Hands)
 pc/brain/        the AI loop: words -> tool calls -> spoken reply     (Brain)
+pc/voice/        speech-to-text and text-to-speech on the PC          (Voice)
 phone/           the phone web app: live view, mic, speech           (Phone app)
 ```
