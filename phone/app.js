@@ -14,32 +14,43 @@ $("code").addEventListener("keydown", (e) => { if (e.key === "Enter") $("callBtn
 // another phone on the call), so it never burns through the wrong-code lockout.
 let callCode = null;     // the code of the current call, for reconnecting
 let wantCall = false;    // false after Hang up or an error from the PC
+let connected = false;   // the PC said "welcome" in this call: only then reconnect by itself
 let retries = 0;
 const pending = [];      // things said while disconnected, sent after reconnecting
+const NO_REACH = "Can't reach your PC. Open the newest address (it changes when the PC restarts) " +
+                 "and check HomeCall still runs on the PC. Still stuck? Switch between Wi-Fi and mobile data.";
 
 function connect(code) {
   if (code.length !== 6) { $("connectError").textContent = "The code has 6 digits."; return; }
   $("connectError").textContent = "";
-  callCode = code; wantCall = true;
+  callCode = code; wantCall = true; connected = false; retries = 0;
+  calling(true);
   open();
 }
 
+// Show right away that the tap did something; back to normal when it ends.
+function calling(on) { $("callBtn").disabled = on; $("callBtn").textContent = on ? "Calling your PC..." : "Call my PC"; }
+
 function open() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  ws = new WebSocket(`${proto}://${location.host}/ws`);
-  ws.binaryType = "arraybuffer";
-  ws.onopen = () => ws.send(JSON.stringify({ type: "hello", code: callCode }));
-  ws.onmessage = (e) => (e.data instanceof ArrayBuffer
+  const sock = new WebSocket(`${proto}://${location.host}/ws`);
+  ws = sock;
+  sock.binaryType = "arraybuffer";
+  sock.onopen = () => sock.send(JSON.stringify({ type: "hello", code: callCode }));
+  sock.onmessage = (e) => (e.data instanceof ArrayBuffer
     ? showFrame(new Blob([e.data], { type: "image/jpeg" }))  // a type helps iPhone Safari show it
     : handle(JSON.parse(e.data)));
-  ws.onclose = () => {
-    if (wantCall && retries < 5) {
+  // Some networks never answer: give up after 10 s instead of waiting forever.
+  setTimeout(() => { if (sock.readyState === WebSocket.CONNECTING) sock.close(); }, 10000);
+  sock.onclose = () => {
+    if (wantCall && connected && retries < 5) {
       retries += 1;
       setStatus("Connection lost, reconnecting...");
       setTimeout(open, 1500);
     } else {
+      calling(false);
       showScreen("connect");
-      if (!$("connectError").textContent) $("connectError").textContent = "Call ended.";
+      if (!$("connectError").textContent) $("connectError").textContent = connected ? "Call ended." : NO_REACH;
     }
   };
   ws.onerror = () => { if (!wantCall) $("connectError").textContent = "Could not reach the PC."; };
@@ -57,6 +68,7 @@ function showScreen(name) { $("connect").classList.toggle("hidden", name !== "co
 function handle(msg) {
   switch (msg.type) {
     case "welcome":
+      connected = true; calling(false);
       showScreen("call"); setStatus(msg.text); retries = 0;
       while (pending.length) send(pending.shift());
       break;

@@ -52,7 +52,14 @@
 </div>
 
 <script type="module">
-  import { Conversation } from "https://cdn.jsdelivr.net/npm/@elevenlabs/client@1.32.1/+esm";
+  // The voice library comes from a CDN. Load it in the background: if it's blocked or slow,
+  // the Call button still works (live screen + a clear message) instead of doing nothing.
+  let Conversation = null, libError = null;
+  const libReady = import("https://cdn.jsdelivr.net/npm/@elevenlabs/client@1.32.1/+esm")
+    .then((m) => { Conversation = m.Conversation; })
+    .catch((e) => { libError = e; });
+  const NO_REACH = "Can't reach your PC. Open the newest address (it changes when the PC restarts) " +
+                   "and check HomeCall still runs on the PC. Still stuck? Switch between Wi-Fi and mobile data.";
 
   const $ = (id) => document.getElementById(id);
   let conversation = null, token = null, filesTimer = null;
@@ -98,9 +105,21 @@
     // 1) Check the code and get the call token. 2) Show the live screen right away.
     // 3) Then start the voice part; if the mic or the voice service fails, keep the
     //    screen and say what's wrong instead of hiding everything.
-    const r = await fetch("/voice/call/start", { method: "POST", headers: { "Content-Type": "application/json" },
-                                                 body: JSON.stringify({ code }) });
-    const data = await r.json().catch(() => ({}));
+    const btn = $("callBtn");
+    btn.disabled = true; btn.textContent = "Calling your PC...";  // show right away that the tap worked
+    const stop = new AbortController();
+    const timer = setTimeout(() => stop.abort(), 15000);         // some networks never answer
+    let r, data;
+    try {
+      r = await fetch("/voice/call/start", { method: "POST", headers: { "Content-Type": "application/json" },
+                                             body: JSON.stringify({ code }), signal: stop.signal });
+      data = await r.json().catch(() => ({}));
+    } catch (e) {
+      $("err").textContent = NO_REACH;
+      return;
+    } finally {
+      clearTimeout(timer); btn.disabled = false; btn.textContent = "Call my PC";
+    }
     if (!r.ok) { $("err").textContent = data.detail || ("Error " + r.status); return; }
     token = data.token;
     show(true);
@@ -112,6 +131,13 @@
     } catch (e) {
       $("state").textContent = "No microphone: you can watch the screen, but not talk.";
       $("err").textContent = "Microphone blocked. Allow it (Safari: aA -> Website Settings -> Microphone), or open this page in Safari, not inside Instagram/Discord. Then tap Hang up and call again.";
+      return;
+    }
+    await libReady;
+    if (!Conversation) {
+      $("state").textContent = "The voice didn't load (the screen still works).";
+      $("err").textContent = "Couldn't download the voice part (cdn.jsdelivr.net): " + (libError && libError.message ? libError.message : libError) +
+                             ". Try mobile data instead of this Wi-Fi.";
       return;
     }
     try {

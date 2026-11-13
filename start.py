@@ -163,21 +163,30 @@ def setup_voice(url: str) -> str:
         return f"problem: {e}"
 
 
+LOG = ROOT / "homecall.log"  # the server's log (gitignored: it holds the pairing code)
+
 # ------------------------------------------------------------------- server ---
 
 def start_server() -> tuple[subprocess.Popen, str | None]:
     env = dict(os.environ, PYTHONUNBUFFERED="1")
     proc = subprocess.Popen([sys.executable, "-m", "pc.server"], cwd=ROOT, env=env,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    log = open(LOG, "w", encoding="utf-8", buffering=1)  # every phone visit, for finding bugs
     code = None
     t0 = time.time()
     while time.time() - t0 < 30 and proc.poll() is None:
         line = proc.stdout.readline()
+        log.write(line)
         m = re.search(r"Pairing code: (\d{6})", line or "")
         if m:
             code = m.group(1)
             break
-    threading.Thread(target=lambda: [None for _ in proc.stdout], daemon=True).start()  # keep the pipe drained
+
+    def keep_logging():  # also keeps the pipe drained, or the server would freeze
+        for line in proc.stdout:
+            log.write(time.strftime("%H:%M:%S ") + line)
+
+    threading.Thread(target=keep_logging, daemon=True).start()
     return proc, code
 
 
@@ -213,6 +222,7 @@ def main() -> None:
     say(f"  Pairing code:               {code}")
     say(f"  Brain:  {brain_line(env)}")
     say(f"  Voice:  {voice}")
+    say("  Log:    homecall.log (each phone visit; private: never post it)")
     say("  Found a bug? GitHub -> Issues -> New issue -> Bug. Never post the address or code.")
     say("=" * 64 + "\n")
 
