@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import time
+import unicodedata
 import zipfile
 from pathlib import Path
 from xml.etree import ElementTree
@@ -96,26 +97,85 @@ def list_files(folder: str = "Desktop") -> str:
     return "\n".join(lines) or "(empty)"
 
 
+# What people say for a file -> other words that may be in its name (English + Lithuanian).
+_CV = ["cv", "curriculum vitae", "curriculum", "resume", "gyvenimo aprasymas"]
+_PHOTO = ["photo", "picture", "image", "img", "nuotrauka", "foto"]
+SYNONYMS = {
+    "cv": _CV, "resume": _CV, "curriculum vitae": _CV,
+    "photo": _PHOTO, "picture": _PHOTO, "image": _PHOTO,
+    "invoice": ["invoice", "saskaita", "faktura"],
+    "report": ["report", "ataskaita"],
+    "draft": ["draft", "juodrastis"],
+    "notes": ["notes", "note", "uzrasai"],
+    "presentation": ["presentation", "slides", "pristatymas", "skaidres"],
+    "contract": ["contract", "agreement", "sutartis"],
+    "letter": ["letter", "laiskas"],
+}
+SKIP_DIRS = {"node_modules", "__pycache__", ".venv", "venv", "site-packages"}
+MAX_HITS = 20
+
+
+def _plain(text: str) -> str:
+    """Lowercase without accents: 'Ataskaitą' -> 'ataskaita', so 'ataskaita' finds it."""
+    text = unicodedata.normalize("NFKD", text.lower())
+    return "".join(ch for ch in text if not unicodedata.combining(ch))
+
+
+def _match_score(filename: str, phrases: list[str]) -> int:
+    """0 = no match. 4 = the whole name, 3 = the start, 2 = inside, 1 = all words, scattered."""
+    stem, full = _plain(Path(filename).stem), _plain(filename)
+    best = 0
+    for phrase in phrases:
+        if not all(word in full for word in phrase.split()):
+            continue
+        if stem == phrase:
+            score = 4
+        elif stem.startswith(phrase):
+            score = 3
+        elif phrase in full:
+            score = 2
+        else:
+            score = 1
+        best = max(best, score)
+    return best
+
+
 def find_file(name: str) -> str:
-    """Search Desktop, Documents, Downloads and Pictures for files whose name contains the text.
+    """Search Desktop, Documents, Downloads and Pictures for a file by name; best match and newest first. Knows synonyms: "cv" also finds "Curriculum Vitae" and "resume".
 
     Args:
-        name: Part of the file name, e.g. "cv" or "report.pdf". Not case sensitive.
+        name: Part of the file name, e.g. "cv", "report 2024" or "photo.jpg". Not case sensitive.
     """
-    needle, hits = name.lower(), []
+    wanted = _plain(" ".join(name.split()))
+    if not wanted:
+        return "Error: tell me part of the file name."
+    phrases = list(dict.fromkeys([wanted] + SYNONYMS.get(wanted, [])))
+    found: list[tuple[int, float, str]] = []
     for root in ALLOWED_ROOTS:
         if not root.exists():
             continue
         for dirpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = [d for d in dirnames if not d.startswith(".")][:50]  # don't crawl forever
+            dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in SKIP_DIRS][:50]
             if dirpath.count(os.sep) - str(root).count(os.sep) > 3:
-                dirnames[:] = []
+                dirnames[:] = []  # don't crawl forever
             for f in filenames:
-                if needle in f.lower() and not f.startswith("~$"):  # ~$ = Office lock files
-                    hits.append(str(Path(dirpath) / f))
-                    if len(hits) >= 20:
-                        return "\n".join(hits)
-    return "\n".join(hits) or f"No file with '{name}' in its name."
+                if f.startswith("~$"):  # Office lock files
+                    continue
+                score = _match_score(f, phrases)
+                if score:
+                    p = Path(dirpath) / f
+                    try:
+                        modified = p.stat().st_mtime
+                    except OSError:
+                        modified = 0.0
+                    found.append((score, modified, str(p)))
+            if len(found) >= 500:
+                break
+    if not found:
+        return f"No file with '{name}' (or a similar word) in its name."
+    found.sort(key=lambda hit: (-hit[0], -hit[1]))  # best match first, then newest
+    more = f" (showing the first {MAX_HITS})" if len(found) > MAX_HITS else ""
+    return f"Found {len(found)}, best match and newest first{more}:\n" + "\n".join(p for _, _, p in found[:MAX_HITS])
 
 
 def open_file(path: str) -> str:
