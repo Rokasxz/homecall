@@ -169,7 +169,7 @@ LOG = ROOT / "homecall.log"  # the server's log (gitignored: it holds the pairin
 # ------------------------------------------------------------------- server ---
 
 def start_server() -> tuple[subprocess.Popen, str | None]:
-    env = dict(os.environ, PYTHONUNBUFFERED="1")
+    env = dict(os.environ, PYTHONUNBUFFERED="1", HOMECALL_LOG_LEVEL="info")  # each visit -> homecall.log
     proc = subprocess.Popen([sys.executable, "-m", "pc.server"], cwd=ROOT, env=env,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     log = open(LOG, "w", encoding="utf-8", buffering=1)  # every phone visit, for finding bugs
