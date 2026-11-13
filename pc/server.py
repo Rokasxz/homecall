@@ -188,26 +188,7 @@ async def call(ws: WebSocket) -> None:
             door.in_call = False  # the next phone may call
 
 
-def _keep_screen_capture_warm() -> None:
-    """macOS sometimes makes the FIRST screenshot after a quiet while wait ~30 s (a
-    permission check). A tiny screenshot every 15 s keeps it warm, so a call never
-    starts with a 30 s black screen. Cheap: ~20-80 ms every 15 s."""
-    import threading
-    import time as _time
-
-    def loop() -> None:
-        while True:
-            try:
-                screen.capture_jpeg(320, 30)
-            except Exception:  # noqa: BLE001 - never let this thread crash the server
-                pass
-            _time.sleep(15)
-
-    threading.Thread(target=loop, daemon=True, name="capture-warmup").start()
-
-
 def main() -> None:
-    _keep_screen_capture_warm()
     print("\n  HomeCall is running.")
     print(f"  Pairing code: {PAIR_CODE}")
     print(f"  On this PC:   http://localhost:{PORT}")

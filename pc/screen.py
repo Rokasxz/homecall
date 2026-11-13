@@ -7,15 +7,22 @@ If capturing fails (no permission, no display), both return a grey placeholder
 image that says why, so the rest of the app keeps working.
 """
 import io
+import threading
 import time
 
 from PIL import Image, ImageDraw
 
 
+# One screenshot at a time. On recent macOS, screen capture goes through a system
+# service; two captures at the same moment (live view + the AI's screenshot) can
+# make one of them wait until a ~30 s timeout. A lock makes them take turns.
+_LOCK = threading.Lock()
+
+
 def _grab() -> Image.Image:
     import mss  # imported here so a missing/broken mss only breaks capture, not the app
 
-    with mss.mss() as sct:
+    with _LOCK, mss.mss() as sct:
         shot = sct.grab(sct.monitors[1])  # 1 = the main screen (0 = all screens together)
         return Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
 
