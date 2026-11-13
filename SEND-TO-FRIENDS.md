@@ -6,6 +6,7 @@ Replace every [bracket] before sending.
 | When | What |
 |---|---|
 | Right now | **Message 1**: the idea, how we work, what to install, pick an area |
+| Right after | **Message 1b**: everyone replies with name, GitHub username, area choice |
 | Before day 1 (30 min) | **Lead steps A-D** below, then **Message 2** |
 | Once people start building | **Message 3**: the daily routine (pin it in the chat) |
 
@@ -39,6 +40,30 @@ SCHEDULE: Day 1, hour 1, all together: everyone runs the app on their own laptop
 ```
 
 ---
+
+## Message 1b: collect everyone's details (send right after Message 1)
+
+Everyone replies with one line in a fixed format. Paste all the replies to
+Claude and it fills the names into CLAUDE.md and TASKS.md, assigns the areas,
+and invites everyone to the repo.
+
+```
+------------------------------------------------
+Reply to this message with your line filled in. Keep the format (one line) so I can paste it straight into our setup:
+
+NAME: ___ | GITHUB: ___ | AREA: 1st choice __, 2nd choice __ | AI TOOL: Claude Code / Codex / ChatGPT web | PHONE: iPhone / Android | PC: Windows / Mac
+
+Areas (one owner each, first come first served):
+1 Server & connection: taken by me
+2 Hands: the Python functions the AI can use on the PC (files, apps, keyboard)
+3 Brain: the Claude API loop (what you say -> tool calls -> spoken reply)
+4 Phone app: the web page on the phone (live view, mic, speaker, cards)
+5 Voice: speech-to-text and text-to-speech on the PC
+
+GITHUB = the name in your profile address, github.com/<that>. No account yet? Make one at github.com (free, 2 minutes), then reply.
+Example: NAME: Jonas | GITHUB: jonas-dev | AREA: 1st choice 3, 2nd choice 2 | AI TOOL: Codex | PHONE: Android | PC: Windows
+------------------------------------------------
+```
 
 ## Lead steps (you, about 30 minutes, before day 1)
 
