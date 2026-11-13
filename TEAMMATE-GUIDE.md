@@ -71,6 +71,18 @@ Don't change any other file yet.
 **Step 4.** Write "ready" in the team chat. Brain owner: also create `.env`
 with `ANTHROPIC_API_KEY=sk-ant-...` (copy `.env.example`).
 
+## 2b. What happens automatically (no need to do anything)
+- **Team briefing**: when you open Claude Code in the project, your AI gets a short
+  briefing: your branch, whether main moved on (then it should pull first), contract
+  changes, requests from teammates, open PRs in your folder. Codex users: AGENTS.md
+  tells Codex to run it (`bash .claude/hooks/briefing.sh`).
+- **Check before done**: if your AI changed files, it runs `python check.py` by
+  itself before saying it's finished, and fixes what broke in your area.
+- **On GitHub**: every Pull Request runs the checks (`check`) and verifies every
+  file is inside your area (`area`). main only accepts PRs with both green.
+- **Coordinator**: every 30 minutes Rokas's coordinator tests new PRs combined with
+  the latest main, comments in plain words, and updates the pinned Team status issue.
+
 ## 3. The rules (memorize these)
 1. **Only edit your own folder.** Need a change elsewhere? Write it under
    "Needs from others" in your TASKS.md section, or ask. Never edit it yourself.

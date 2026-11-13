@@ -124,6 +124,14 @@ def collect() -> dict:
             "needs_review": reviewed_sha is None or not pr["headRefOid"].startswith(reviewed_sha),
         })
 
+    seen: dict[str, list[int]] = {}
+    for p in out_prs:
+        for f in p["files"]:
+            if f != "TASKS.md":
+                seen.setdefault(f, []).append(p["number"])
+    for p in out_prs:
+        p["overlaps"] = sorted({n for f in p["files"] for n in seen.get(f, []) if n != p["number"]})
+
     pr_branches = {p["branch"] for p in out_prs}
     branches = []
     refs = run("git", "for-each-ref", "refs/remotes/origin", "--format=%(refname:short)|%(objectname)|%(committerdate:iso-strict)")
@@ -132,6 +140,9 @@ def collect() -> dict:
         name = ref.removeprefix("origin/")
         if name in ("main", "HEAD", "origin") or name in pr_branches:
             continue
+        merged = subprocess.run(["git", "merge-base", "--is-ancestor", sha, "origin/main"]).returncode == 0
+        if merged:
+            continue  # already in main: not "work without a PR"
         login = (gh_json("api", f"repos/{REPO}/commits/{sha}").get("author") or {}).get("login")
         branches.append({"branch": name, "author": login, "date": date})
 
@@ -192,6 +203,8 @@ def markdown(f: dict) -> str:
             flags.append("changes the contract (CLAUDE.md)")
         if p["requirements_changed"]:
             flags.append("changes requirements.txt (needs lead OK)")
+        if p.get("overlaps"):
+            flags.append("same files as " + ", ".join(f"#{n}" for n in p["overlaps"]))
         L.append(f"- #{p['number']} {p['title']} by {p['author']} ({p['branch']}): CI {p['ci']}, "
                  f"{p['mergeable'].lower()}, updated {ago(p['updated'])}, "
                  f"{'NEEDS REVIEW' if p['needs_review'] else 'reviewed at this commit'}"
