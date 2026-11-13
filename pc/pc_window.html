@@ -58,7 +58,10 @@
     $("code").textContent = info.code.slice(0, 3) + " " + info.code.slice(3);
     if (!info.url) {
       $("qr").classList.add("hidden");
-      $("qrText").textContent = "Only this computer can open HomeCall right now (no tunnel). Restart HomeCall without --local.";
+      // start.py says why (e.g. "This network blocks the tunnel ... hotspot").
+      $("qrText").textContent = "Your phone can't reach this computer yet. " +
+        (info.no_url_reason || "The tunnel didn't start: close HomeCall and start it again.");
+      $("qrText").style.color = "var(--bad)";
       return;
     }
     // The phone page reads the code from after the "#": it never goes to any server.

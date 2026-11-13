@@ -151,6 +151,7 @@ def pc_window_info(request: Request, recheck: int = 0) -> dict:
     brain = brain if brain in ("api", "max", "echo") else ("api" if os.environ.get("ANTHROPIC_API_KEY") else "echo")
     names = {"api": "Claude (team key)", "max": "Claude (your Claude login)", "echo": "off: no key (echo mode)"}
     return {"code": PAIR_CODE, "url": PUBLIC_URL, "in_call": door.in_call, "brain": names[brain],
+            "no_url_reason": os.environ.get("HOMECALL_TUNNEL_NOTE", ""),
             "voice": bool(os.environ.get("ELEVENLABS_API_KEY") and os.environ.get("ELEVENLABS_AGENT_ID")),
             "permissions": PERMISSIONS}
 
