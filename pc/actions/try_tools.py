@@ -154,6 +154,24 @@ def safe_tests(tmp: Path) -> None:
         check("without a phone it refuses", r, r.startswith("Cancelled") and draft.exists())
         r = basic.delete_file("C:\\Windows\\win.ini" if sys.platform == "win32" else "/etc/hosts")
         check("refuses a file outside the allowed folders", r, r.startswith("Error"))
+
+        print("\nopen_file with programs (phone answers No, so nothing runs)")
+        for prog in ("setup.exe", "run-me.bat", "script.sh"):
+            (tmp / prog).write_text("echo pwned", encoding="utf-8")
+        phone = FakeSession(answer=False)
+        actions.current_session = phone
+        r = basic.open_file(str(tmp / "setup.exe"))
+        check("asks before running a .exe; 'No' cancels", r, r.startswith("Cancelled"))
+        actions.current_session = None
+        r = basic.open_file(str(tmp / "run-me.bat"))
+        check("without a phone it refuses to run a .bat", r, r.startswith("Cancelled"))
+        r = basic.open_file(str(tmp / "script.sh"))
+        check("same for a .sh script", r, r.startswith("Cancelled"))
+
+        print("\nread_file_text with a huge .docx")
+        make_docx(tmp / "huge.docx", ["x" * (6 * 1024 * 1024)])
+        r = basic.read_file_text(str(tmp / "huge.docx"))
+        check("refuses a .docx whose text part is over 5 MB", r, r.startswith("Error") and "too big" in r)
     finally:
         basic.ALLOWED_ROOTS = saved_roots
         actions.current_session = None
@@ -175,6 +193,26 @@ def safe_tests(tmp: Path) -> None:
         print(f"      (Spotify -> {found or 'not installed'})")
     r = basic.open_app("NoSuchAppXyz123")
     check("an unknown app gives an error, not a fake 'done'", r, r.startswith("Error"))
+    for bad in ("C:\\Users\\me\\Downloads\\evil.exe", "~/Downloads/Evil.app", "/tmp/evil.sh", "..\\evil"):
+        r = basic.open_app(bad)
+        check(f"refuses a path as an app name: {bad}", r, r.startswith("Error") and "NAME" in r)
+
+    print("\ntyping into a terminal (pretend a terminal is in front; nothing is pressed)")
+    real_foreground = basic._foreground_exe
+    basic._foreground_exe = lambda: "powershell.exe"
+    try:
+        actions.current_session = None
+        r = basic.press_keys("enter")
+        check("Enter in a terminal without a phone is refused", r, r.startswith("Cancelled"))
+        r = basic.type_text("dir\n")
+        check("typing a line + Enter in a terminal without a phone is refused", r, r.startswith("Cancelled"))
+        phone = FakeSession(answer=False)
+        actions.current_session = phone
+        r = basic.press_keys("enter")
+        check("Enter in a terminal asks on the phone; 'No' cancels", r, r.startswith("Cancelled"))
+    finally:
+        basic._foreground_exe = real_foreground
+        actions.current_session = None
 
     print("\nmedia_key (only wrong input here; a real press is under --gui)")
     r = media.media_key("dance")
