@@ -6,10 +6,23 @@ click_at scales the point up to the real screen, e.g. on a 2880x1800 screen
 the picture is 1280x800, so (100, 100) in the picture is (225, 225) on screen.
 """
 import inspect
+import re
 
 import pc.actions as actions  # for actions.current_session
 
 DEFAULT_SHOT_WIDTH = 1280
+
+# Clicking a button with one of these words can't be undone: ask on the phone first.
+RISKY_WORDS = ["send", "delete", "remove", "bin", "trash", "erase", "discard", "buy", "pay", "purchase",
+               "order", "checkout", "transfer", "allow", "accept", "agree", "install", "uninstall", "run",
+               "confirm", "submit", "post", "publish", "sign", "format", "reset", "shut down", "restart",
+               "log out", "sign out"]
+_RISKY = re.compile(r"\b(" + "|".join(re.escape(w) for w in RISKY_WORDS) + r")", re.IGNORECASE)
+
+
+def is_risky(what: str) -> bool:
+    """True if the thing to click sounds like it can't be undone (Send, Delete, Buy, Allow...)."""
+    return bool(_RISKY.search(what))
 
 
 def _session():
@@ -56,33 +69,39 @@ def to_screen(x: int, y: int) -> tuple[int, int] | None:
     return left + round(x * w / pic_w), top + round(y * h / pic_h)
 
 
-def click_at(x: int, y: int, double: bool = False) -> str:
-    """Click with the mouse at a point in the screenshot you were given (look at it first, aim at the middle of the button or link).
+def click_at(x: int, y: int, what: str, double: bool = False) -> str:
+    """Click with the mouse at a point in the screenshot you were given (look at it first, aim at the middle of the button or link). Buttons like Send, Delete, Buy or Allow ask the user on the phone first.
 
     Args:
         x: Pixels from the LEFT edge of the screenshot (not of the real screen).
         y: Pixels from the TOP edge of the screenshot.
+        what: What you are clicking, as written on the screen, e.g. "Play button" or "Send button".
         double: True for a double-click (e.g. to open a file on the desktop). Default False.
     """
     try:
         x, y = int(x), int(y)
     except (TypeError, ValueError):
         return "Error: x and y must be whole numbers (pixels in the screenshot)."
+    what = " ".join(str(what or "").split())[:80]
+    if not what:
+        return "Error: say what you are clicking (what), e.g. 'Play button'."
     left, top, w, h = _main_screen()
     pic_w, pic_h = picture_size(w, h)
     point = to_screen(x, y)
     if point is None:
         return f"Error: ({x}, {y}) is outside the screenshot, which is {pic_w} x {pic_h} pixels."
     real_x, real_y = point
-    what = "Double-clicking" if double else "Clicking"
+    if is_risky(what):
+        if not _session() or not _session().confirm(f"Click '{what}' on the PC?"):
+            return f"Cancelled: the user did not confirm clicking '{what}'."
     if _session():
-        _session().status(f"{what} on the screen")
+        _session().status(f"{'Double-clicking' if double else 'Clicking'} {what}")
     try:
         import pyautogui
         pyautogui.click(real_x, real_y, clicks=2 if double else 1, interval=0.1)
     except Exception as e:  # noqa: BLE001  (e.g. pyautogui's fail-safe when aiming at a screen corner)
         return f"Error clicking: {e}"
-    return (f"{'Double-clicked' if double else 'Clicked'} at ({x}, {y}) in the screenshot "
+    return (f"{'Double-clicked' if double else 'Clicked'} {what} at ({x}, {y}) in the screenshot "
             f"(= {real_x}, {real_y} on the {w}x{h} screen). Look at the next screenshot to see what happened.")
 
 

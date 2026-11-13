@@ -265,10 +265,22 @@ def safe_tests(tmp: Path) -> None:
               pointer.picture_size(2880, 1800) == (1280, 800))
         check("(100, 100) in the picture -> (225, 225) on screen", str(pointer.to_screen(100, 100)),
               pointer.to_screen(100, 100) == (225, 225))
-        r = pointer.click_at(1500, 10)
+        r = pointer.click_at(1500, 10, "OK button")
         check("a point outside the picture gives an error", r, r.startswith("Error") and "1280 x 800" in r)
-        r = pointer.click_at("left", 5)
+        r = pointer.click_at("left", 5, "OK button")
         check("x that isn't a number gives an error", r, r.startswith("Error"))
+        r = pointer.click_at(10, 10, "  ")
+        check("click_at without saying what gives an error", r, r.startswith("Error"))
+        for risky in ("Send button", "Move to Bin", "Buy now", "Allow", "Delete"):
+            check(f"'{risky}' counts as risky", risky, pointer.is_risky(risky))
+        for safe in ("Play button", "OK button", "Brunch menu", "Design tab", "Search box"):
+            check(f"'{safe}' is not risky", safe, not pointer.is_risky(safe))
+        actions.current_session = FakeSession(answer=False)
+        r = pointer.click_at(10, 10, "Send button")
+        check("a risky click asks first; 'No' cancels (nothing clicked)", r, r.startswith("Cancelled"))
+        actions.current_session = None
+        r = pointer.click_at(10, 10, "Delete")
+        check("a risky click without a phone is refused", r, r.startswith("Cancelled"))
     finally:
         pointer._main_screen = real_screen
     pointer._main_screen = lambda: (0, 0, 1024, 768)  # a small screen isn't scaled at all
@@ -376,27 +388,37 @@ def click_tests() -> None:
     results: list[tuple[str, str, bool]] = []
     root = tk.Tk()
     root.title("HomeCall click test")
-    root.geometry("420x220+300+300")
+    root.geometry("460x300+300+300")
     root.attributes("-topmost", True)
-    button = tk.Button(root, text="HomeCall click test: click me", font=("Segoe UI", 14),
-                       command=lambda: pressed.append("yes"))
-    button.pack(expand=True, fill="both", padx=60, pady=60)
+    play = tk.Button(root, text="Play (test)", font=("Segoe UI", 14), command=lambda: pressed.append("play"))
+    play.pack(expand=True, fill="both", padx=60, pady=(40, 10))
+    delete = tk.Button(root, text="Delete (test)", font=("Segoe UI", 14), command=lambda: pressed.append("delete"))
+    delete.pack(expand=True, fill="both", padx=60, pady=(10, 40))
+
+    def in_picture(widget) -> tuple[int, int]:
+        """The middle of a widget, as it would appear in the AI's screenshot."""
+        left, top, w, h = pointer._main_screen()
+        pic_w, pic_h = pointer.picture_size(w, h)
+        bx = widget.winfo_rootx() + widget.winfo_width() // 2
+        by = widget.winfo_rooty() + widget.winfo_height() // 2
+        return round((bx - left) * pic_w / w), round((by - top) * pic_h / h)
 
     def go() -> None:
         root.lift()
         root.update()
-        left, top, w, h = pointer._main_screen()
-        pic_w, pic_h = pointer.picture_size(w, h)
-        # the middle of the button, as it would appear in the AI's screenshot
-        bx = button.winfo_rootx() + button.winfo_width() // 2
-        by = button.winfo_rooty() + button.winfo_height() // 2
-        x, y = round((bx - left) * pic_w / w), round((by - top) * pic_h / h)
-        r = pointer.click_at(x, y)
-        results.append(("click_at reports success", r, r.startswith("Clicked")))
+        actions.current_session = FakeSession(answer=False)  # the "phone" taps No
+        try:
+            r = pointer.click_at(*in_picture(play), "Play button")
+            results.append(("click_at clicks a normal button without asking", r, r.startswith("Clicked")))
+            r = pointer.click_at(*in_picture(delete), "Delete button")
+            results.append(("click_at asks before 'Delete'; 'No' cancels", r, r.startswith("Cancelled")))
+        finally:
+            actions.current_session = None
         root.after(500, done)
 
     def done() -> None:
-        results.append(("the button really got clicked", "pressed" if pressed else "NOT pressed", bool(pressed)))
+        results.append(("Play really got clicked", ", ".join(pressed) or "nothing", "play" in pressed))
+        results.append(("Delete was NOT clicked", ", ".join(pressed) or "nothing", "delete" not in pressed))
         root.destroy()
 
     root.after(1200, go)
