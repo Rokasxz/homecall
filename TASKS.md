@@ -82,6 +82,12 @@ Needs from others: everyone: tell me when a piece is merged so I test it.
   - Hands (Mantas): Mac terminal guard fails open when Automation is denied (#18);
     click_at skips Yes/No for Send/Delete/Buy/Allow buttons (#20). Prompts on the PRs.
   - Lead/Brain: Mantas saw the max Brain not getting the screenshot: click_at needs it.
+- Safety pass #5 (demo/SAFETY-PASS.md): Server #25 fixed 0.0.0.0, lockout, one phone, outbox. New:
+  - Lead: the lockout is global, so anyone with the address can lock the owner out forever (5 wrong
+    codes a minute), and one teammate's typo locks out the whole team. Count per client (CF-Connecting-IP).
+  - Phone (Matuuunej): when the PC refuses ("Wrong pairing code", "Another phone is already on the
+    call", "locked"), ws.onclose replaces the message with "Call ended." Keep the error text.
+  - Hands: Mac hides .app/.command, so double-clicking "Evil" doesn't ask (#28 checks visible names).
 
 ## Mantas: Hands (`pc/actions/`)
 Start prompt: "Read PLAN.md and CLAUDE.md, especially contract section 2. My

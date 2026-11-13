@@ -20,8 +20,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 # Our test files, and the branches that may have a newer copy than main (last wins).
-TEST_FILES = ["test_hands.py", "test_contract.py", "test_safety.py", "test_media.py", "test_power.py", "test_demo_path.py", "test_pointer.py"]
-TEST_SOURCES = ["origin/main", "origin/feature/tests-ignore-env"]
+TEST_FILES = ["test_hands.py", "test_contract.py", "test_safety.py", "test_media.py", "test_power.py", "test_demo_path.py", "test_pointer.py", "test_contract_types.py"]
+TEST_SOURCES = ["origin/main", "origin/feature/tests-ignore-env", "origin/feature/tests-contract-guard"]
 PY = ROOT / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 GH = shutil.which("gh") or str(Path.home() / ".local/bin/gh")
 

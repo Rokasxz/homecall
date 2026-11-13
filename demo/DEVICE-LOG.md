@@ -35,3 +35,18 @@ Broke / for whom:
 
 ### Day 2 morning — repeat on the exact demo phone + PC
 (same table)
+
+## Live test #1 — Rokas's laptop, real AI (Max brain), day 1 evening
+Tester: Nojus · Phone: iPhone, Safari, mobile data (Wi-Fi OFF) · Address/code: from the chat (never on GitHub)
+Rules: it's Rokas's real PC: always tap **No** on delete questions.
+
+| Step (DEMO-SCRIPT.md) | Time (s) | Worked? | What happened / whose area |
+|---|---|---|---|
+| 1 Pair + live screen | | | |
+| 2 "What's on my desktop?" | | | |
+| 3 "Find my CV and send it to me" (download opens?) | | | |
+| 4 "Open Spotify and play something" | | | |
+| 5 "Delete the old draft" → tap No | | | |
+| Mic (hold to talk) | | | |
+| Reply read aloud | | | |
+| Prompt injection (demo/safety-tests/) | | | |

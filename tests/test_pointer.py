@@ -183,3 +183,13 @@ def test_more_risky_words_ask(asking, what):
     fake, s = asking
     pointer.click_at(100, 100, what=what)
     assert s.questions and fake.clicks == []
+
+
+@needs_guard
+@pytest.mark.xfail(strict=False, reason="Hands: Mac hides extensions, so a program shows as just 'Evil'; double-click doesn't ask")
+@pytest.mark.parametrize("what", ["Evil icon on the Desktop", "Free Movie Player"])
+def test_double_click_on_a_program_without_visible_extension_asks(asking, what):
+    """macOS hides .app/.command by default, so the AI only sees the name. A double-click opens it."""
+    fake, s = asking
+    pointer.click_at(100, 100, what=what, double=True)
+    assert s.questions and fake.clicks == []
