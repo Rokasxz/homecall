@@ -3,10 +3,14 @@
 Run from the project root:   python -m pytest tests/ -v
 
 Tests marked xfail are KNOWN GAPS, written up for their owner in TASKS.md and
-demo/SAFETY-PASS.md. When the owner fixes one, its test turns into "XPASS"
-(a failure, because strict=True): then remove the xfail mark here.
+demo/SAFETY-PASS.md. They are NOT strict: when an owner fixes one, the owner's
+Pull Request stays green and the test shows as "XPASS" (= fixed). Then remove
+the xfail mark here. (Strict marks turned the owners' CI red for doing the right
+thing, so we don't use them.)
 """
 import json
+import sys
+import types
 
 import pytest
 from fastapi.testclient import TestClient
@@ -42,7 +46,7 @@ def wrong_code():
 
 # ------------------------------------------------------------ server (lead) -----
 
-@pytest.mark.xfail(strict=True, reason="Server: no lockout after wrong codes yet (TASKS.md)")
+@pytest.mark.xfail(strict=False, reason="Server: no lockout after wrong codes yet (TASKS.md)")
 def test_lockout_after_5_wrong_codes(client):
     for _ in range(5):
         with client.websocket_connect("/ws") as ws:
@@ -53,7 +57,7 @@ def test_lockout_after_5_wrong_codes(client):
         assert first_json(ws)["type"] != "welcome", "right code still works after 5 wrong ones"
 
 
-@pytest.mark.xfail(strict=True, reason="Server: a second phone can join a running call (TASKS.md)")
+@pytest.mark.xfail(strict=False, reason="Server: a second phone can join a running call (TASKS.md)")
 def test_only_one_phone_at_a_time(client):
     with client.websocket_connect("/ws") as a:
         a.send_json({"type": "hello", "code": server.PAIR_CODE})
@@ -83,7 +87,7 @@ def test_download_wildcards_dont_leak(client, tmp_path, token):
 
 # ------------------------------------------------------------- voice (Voice) -----
 
-@pytest.mark.xfail(strict=True, reason="Voice/Server: /voice endpoints don't check the pairing code (TASKS.md)")
+@pytest.mark.xfail(strict=False, reason="Voice/Server: /voice endpoints don't check the pairing code (TASKS.md)")
 def test_voice_endpoints_need_the_pairing_code(client):
     r = client.get("/voice/speak", params={"text": "hi"})
     assert r.status_code in (401, 403)
@@ -103,7 +107,8 @@ def desktop(tmp_path, monkeypatch):
     return d, launched
 
 
-@pytest.mark.xfail(strict=True, reason="Hands: open_file runs scripts/apps without asking (TASKS.md)")
+# Fixed in Hands PR 13. Not strict, so it passes before and after that merge; drop the mark after.
+@pytest.mark.xfail(strict=False, reason="Hands: open_file runs scripts/apps without asking (fixed in PR 13)")
 @pytest.mark.parametrize("name", ["run-me.command", "run-me.sh", "Evil.app", "setup.exe", "x.bat"])
 def test_open_file_does_not_run_programs_without_asking(desktop, name):
     d, launched = desktop
@@ -116,7 +121,8 @@ def test_open_file_does_not_run_programs_without_asking(desktop, name):
     assert launched == [], "a program was launched with no Yes/No on the phone"
 
 
-@pytest.mark.xfail(strict=True, reason="Hands: open_app starts any program given by full path (TASKS.md)")
+# Fixed in Hands PR 13 (see above).
+@pytest.mark.xfail(strict=False, reason="Hands: open_app starts any program given by full path (fixed in PR 13)")
 @pytest.mark.parametrize("path", ["~/Downloads/Evil.app", "/tmp/evil.sh", "C:\\Users\\me\\Downloads\\evil.exe"])
 def test_open_app_refuses_program_paths(monkeypatch, path):
     """open_app is for app NAMES. A full path would bypass the 4-folder rule and run anything."""
@@ -146,3 +152,62 @@ def test_read_file_text_refuses_symlink_out(tmp_path, monkeypatch):
     monkeypatch.setattr(actions, "current_session", None)
     out = basic.read_file_text(str(d / "link.txt"))
     assert "top secret" not in out
+
+
+# ------------------------------------------------- terminal guard (Hands PR 13) -----
+
+needs_guard = pytest.mark.skipif(not hasattr(basic, "_ok_to_run_in_terminal"),
+                                 reason="terminal guard not in main yet (Hands PR 13)")
+
+
+class _AskSession:
+    def __init__(self, answer=False):
+        self.answer, self.questions, self.emitted = answer, [], []
+
+    def confirm(self, q, timeout=60):
+        self.questions.append(q)
+        return self.answer
+
+    def status(self, t):
+        self.emitted.append(t)
+
+    def emit(self, m):
+        self.emitted.append(m)
+
+
+@pytest.fixture
+def terminal_in_front(monkeypatch):
+    fake = types.SimpleNamespace(pressed=[], typed=[], KEYBOARD_KEYS=None)
+    fake.hotkey = lambda *k: fake.pressed.append(k)
+    fake.typewrite = lambda t, interval=0: fake.typed.append(t)
+    fake.write = fake.typewrite
+    fake.press = lambda *a, **k: fake.pressed.append(a)
+    monkeypatch.setitem(sys.modules, "pyautogui", fake)
+    monkeypatch.setattr(basic, "_terminal_in_front", lambda: True)
+    monkeypatch.setattr(basic, "IS_WIN", False)  # use the pyautogui path, not Windows SendInput
+    s = _AskSession(answer=False)
+    monkeypatch.setattr(actions, "current_session", s)
+    return fake, s
+
+
+@needs_guard
+@pytest.mark.parametrize("key", ["enter", "Enter"])
+def test_enter_in_a_terminal_asks_first(terminal_in_front, key):
+    fake, s = terminal_in_front
+    assert basic.press_keys(key).startswith("Cancelled")
+    assert s.questions and fake.pressed == []
+
+
+@needs_guard
+def test_return_key_in_a_terminal_asks_first(terminal_in_front):
+    fake, s = terminal_in_front
+    basic.press_keys("return")
+    assert s.questions and fake.pressed == [], "'return' ran a command with no Yes/No"
+
+
+@needs_guard
+def test_typing_a_command_with_newline_in_a_terminal_asks_first(terminal_in_front):
+    fake, s = terminal_in_front
+    assert basic.type_text("rm -rf ~/Documents\n").startswith("Cancelled")
+    assert fake.typed == []
+

@@ -313,7 +313,7 @@ def test_every_tool_is_covered():
     tested = {"list_files", "find_file", "open_file", "send_file_to_phone",
               "delete_file", "open_app", "type_text", "press_keys", "pc_info",
               "read_file_text"}
-    tested |= {"media_key"}  # tests/test_media.py
+    tested |= {"media_key", "lock_pc", "sleep_pc"}  # tests/test_media.py, tests/test_power.py
     missing = {f.__name__ for f in actions.TOOLS} - tested  # every file's tools, not just basic.py
     assert not missing, f"New tools without tests: {sorted(missing)}"
 
