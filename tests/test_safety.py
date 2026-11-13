@@ -3,8 +3,10 @@
 Run from the project root:   python -m pytest tests/ -v
 
 Tests marked xfail are KNOWN GAPS, written up for their owner in TASKS.md and
-demo/SAFETY-PASS.md. When the owner fixes one, its test turns into "XPASS"
-(a failure, because strict=True): then remove the xfail mark here.
+demo/SAFETY-PASS.md. They are NOT strict: when an owner fixes one, the owner's
+Pull Request stays green and the test shows as "XPASS" (= fixed). Then remove
+the xfail mark here. (Strict marks turned the owners' CI red for doing the right
+thing, so we don't use them.)
 """
 import json
 import sys
@@ -44,7 +46,7 @@ def wrong_code():
 
 # ------------------------------------------------------------ server (lead) -----
 
-@pytest.mark.xfail(strict=True, reason="Server: no lockout after wrong codes yet (TASKS.md)")
+@pytest.mark.xfail(strict=False, reason="Server: no lockout after wrong codes yet (TASKS.md)")
 def test_lockout_after_5_wrong_codes(client):
     for _ in range(5):
         with client.websocket_connect("/ws") as ws:
@@ -55,7 +57,7 @@ def test_lockout_after_5_wrong_codes(client):
         assert first_json(ws)["type"] != "welcome", "right code still works after 5 wrong ones"
 
 
-@pytest.mark.xfail(strict=True, reason="Server: a second phone can join a running call (TASKS.md)")
+@pytest.mark.xfail(strict=False, reason="Server: a second phone can join a running call (TASKS.md)")
 def test_only_one_phone_at_a_time(client):
     with client.websocket_connect("/ws") as a:
         a.send_json({"type": "hello", "code": server.PAIR_CODE})
@@ -85,7 +87,7 @@ def test_download_wildcards_dont_leak(client, tmp_path, token):
 
 # ------------------------------------------------------------- voice (Voice) -----
 
-@pytest.mark.xfail(strict=True, reason="Voice/Server: /voice endpoints don't check the pairing code (TASKS.md)")
+@pytest.mark.xfail(strict=False, reason="Voice/Server: /voice endpoints don't check the pairing code (TASKS.md)")
 def test_voice_endpoints_need_the_pairing_code(client):
     r = client.get("/voice/speak", params={"text": "hi"})
     assert r.status_code in (401, 403)
