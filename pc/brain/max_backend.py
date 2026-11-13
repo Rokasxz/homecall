@@ -24,6 +24,7 @@ import tempfile
 import threading
 
 import pc.actions as actions
+from pc.brain import brain_tools
 
 SERVER = "pc"  # tool names become mcp__pc__<function name>
 MODEL = os.environ.get("HOMECALL_MAX_MODEL", "sonnet")   # Claude Code alias; "opus" = smarter, slower
@@ -31,15 +32,6 @@ EFFORT = os.environ.get("HOMECALL_MAX_EFFORT", "low")    # low = snappy voice re
 MAX_TURNS = int(os.environ.get("HOMECALL_MAX_TURNS", "10"))
 _NEUTRAL_DIR = tempfile.mkdtemp(prefix="homecall-brain-")  # no project CLAUDE.md, hooks or settings
 LOGIN_HELP = "On this PC, run `claude auth login` once in a Terminal window, then call again."
-
-
-def _as_jpeg(png: bytes) -> bytes:
-    """Re-encode a screenshot as JPEG: much smaller, so faster to send and process."""
-    import io
-    from PIL import Image
-    buf = io.BytesIO()
-    Image.open(io.BytesIO(png)).convert("RGB").save(buf, "JPEG", quality=70)
-    return buf.getvalue()
 
 
 def _tool_info(func) -> tuple[str, dict]:
@@ -109,28 +101,18 @@ class MaxBrain:
         await self.client.connect()
 
     def _brain_tools(self) -> list:
-        """Tools for the Brain itself: see the screen again, and ask the user Yes/No."""
+        """Tools for the Brain itself: see the screen again, and ask the user Yes/No (brain_tools.py)."""
         from claude_agent_sdk import tool
-        from pc import screen
 
-        @tool("look_at_screen", "Take a fresh screenshot of the PC screen. Use it after every action that "
-              "changes the screen (opening an app, clicking, typing, pressing keys) to check it worked "
-              "before the next step. Coordinates for click_at refer to this picture.", {"type": "object", "properties": {}})
+        @tool(brain_tools.LOOK_NAME, brain_tools.LOOK_DESCRIPTION, {"type": "object", "properties": {}})
         async def look_at_screen(args: dict) -> dict:
-            jpg = await asyncio.to_thread(screen.capture_jpeg, 1280, 70)  # JPEG: ~10x smaller than PNG
+            jpg = await asyncio.to_thread(brain_tools.look)  # JPEG: ~10x smaller than PNG
             return {"content": [{"type": "image", "data": base64.b64encode(jpg).decode(), "mimeType": "image/jpeg"}]}
 
-        @tool("ask_user", "Ask the user a Yes/No question on their phone and wait for the answer. Use it "
-              "before sending a message, posting, emailing, or anything you're not sure they want: say "
-              "exactly what will happen, e.g. 'Send \"hi\" to Tomas on Discord?'.",
-              {"type": "object", "properties": {"question": {"type": "string", "description": "The Yes/No question."}},
-               "required": ["question"]})
+        @tool(brain_tools.ASK_NAME, brain_tools.ASK_DESCRIPTION, brain_tools.ASK_SCHEMA)
         async def ask_user(args: dict) -> dict:
-            if self.session is None:
-                return {"content": [{"type": "text", "text": "No phone connected: don't do it."}], "is_error": True}
-            ok = await asyncio.to_thread(self.session.confirm, str(args.get("question", ""))[:300])
-            return {"content": [{"type": "text", "text": "The user tapped Yes." if ok else
-                                 "The user tapped No (or didn't answer): don't do it."}]}
+            answer = await asyncio.to_thread(brain_tools.ask, self.session, args.get("question", ""))
+            return {"content": [{"type": "text", "text": answer}], "is_error": answer == brain_tools.NO_PHONE}
 
         return [look_at_screen, ask_user]
 
@@ -157,7 +139,7 @@ class MaxBrain:
         content: list[dict] = []
         if screenshot_png:
             content.append({"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
-                                                         "data": base64.b64encode(_as_jpeg(screenshot_png)).decode()}})
+                                                         "data": base64.b64encode(brain_tools.as_jpeg(screenshot_png)).decode()}})
         content.append({"type": "text", "text": text})
 
         async def messages():

@@ -76,8 +76,8 @@ def brain_line(env: dict) -> str:
         return "max (real Claude, through your own Claude login)"
     if mode == "api":
         return "api (real Claude, through ANTHROPIC_API_KEY)"
-    return ("echo (no AI: repeats what you say). For real AI: put HOMECALL_BRAIN=max in .env, "
-            "`pip install claude-agent-sdk`, and `claude auth login` (your own Claude subscription)")
+    return ("echo (no AI: repeats what you say). For real AI: ask Rokas privately for the team's "
+            "Claude API key and put ANTHROPIC_API_KEY=... in .env (see README)")
 
 
 # ------------------------------------------------------------------- tunnel ---

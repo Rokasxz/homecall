@@ -20,9 +20,11 @@ points YOUR voice agent at it (if `ELEVENLABS_API_KEY` is in your `.env`), and p
 the phone address, the voice-call address (`/voice/call`, Safari), and the pairing code.
 Keep the window open; Ctrl+C stops everything. Use it to test on your own PC and find bugs
 (GitHub -> Issues -> New issue -> Bug).
-- **Real AI on your PC:** `HOMECALL_BRAIN=max` in `.env`, `pip install claude-agent-sdk`,
-  and `claude auth login` once (needs your own Claude subscription). Otherwise it runs in
-  echo mode (no AI).
+- **Real AI on your PC:** ask Rokas privately for the team's Claude API key and put it in
+  `.env` as `ANTHROPIC_API_KEY=...` (and `HOMECALL_BRAIN=api`, or no `HOMECALL_BRAIN` line).
+  It costs the team a cent or two per request, so test, don't leave it chatting. Other
+  option: `HOMECALL_BRAIN=max`, `pip install claude-agent-sdk` and `claude auth login` once
+  (your own Claude subscription). Without either it runs in echo mode (no AI).
 - **Voice on your PC:** ask Rokas privately for the ElevenLabs key, put it in `.env` as
   `ELEVENLABS_API_KEY=...`; `start.py` creates your own voice agent the first time.
 - **Needs** `cloudflared` (Mac `brew install cloudflared`, Windows
