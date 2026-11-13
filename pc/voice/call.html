@@ -16,7 +16,8 @@
   button { width:100%; font-size:20px; padding:16px; margin-top:12px; border:0; border-radius:14px; color:#fff;
            background:var(--accent); font-weight:600; }
   button.end { background:var(--red); }
-  #orb { width:160px; height:160px; border-radius:50%; margin:28px auto; background:#222833; transition:all .3s; }
+  #screen { display:block; width:100%; aspect-ratio:16/10; object-fit:contain; background:#000; border-radius:12px; margin-top:12px; }
+  #orb { width:72px; height:72px; border-radius:50%; margin:16px auto; background:#222833; transition:all .3s; }
   #orb.listening { background:var(--green); box-shadow:0 0 0 12px rgba(34,197,94,.15); }
   #orb.speaking { background:var(--accent); box-shadow:0 0 0 18px rgba(59,130,246,.18); animation:pulse 1s infinite; }
   @keyframes pulse { 50% { transform:scale(1.06); } }
@@ -40,6 +41,7 @@
   </div>
 
   <div id="incall" class="hidden">
+    <img id="screen" alt="Loading your screen...">
     <div id="orb"></div>
     <div id="state">Connecting...</div>
     <button id="endBtn" class="end">Hang up</button>
@@ -93,6 +95,7 @@
     if (!r.ok) { $("err").textContent = data.detail || ("Error " + r.status); return; }
     token = data.token;
     show(true);
+    loadScreen();
     try {
       conversation = await Conversation.startSession({
         signedUrl: data.signed_url,
@@ -119,8 +122,16 @@
 
   $("endBtn").onclick = async () => {
     try { if (conversation) await conversation.endSession(); } catch (_) {}
-    conversation = null; clearInterval(filesTimer); show(false);
+    conversation = null; token = null; clearInterval(filesTimer); show(false);
   };
+
+  // Live PC screen during the call: load the next picture as soon as the last one arrived.
+  function loadScreen() {
+    if (!token) return;
+    const img = $("screen");
+    img.onload = img.onerror = () => { if (token) setTimeout(loadScreen, 600); };
+    img.src = "/voice/call/screen?token=" + encodeURIComponent(token) + "&t=" + Date.now();
+  }
 </script>
 </body>
 </html>
