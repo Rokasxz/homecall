@@ -16,6 +16,7 @@ Three modes (HOMECALL_BRAIN in .env):
 """
 import base64
 import os
+import threading
 
 import pc.actions as actions
 
@@ -42,20 +43,39 @@ class Brain:
     def __init__(self) -> None:
         self.history: list[dict] = []
         self.client = None
+        self.max = None
+        self._lock = threading.Lock()  # one request at a time per call
         self.mode = os.environ.get("HOMECALL_BRAIN", "").strip().lower()
         if self.mode not in ("api", "max", "echo"):
             self.mode = "api" if os.environ.get("ANTHROPIC_API_KEY") else "echo"
         if self.mode == "api":
             import anthropic
             self.client = anthropic.Anthropic()
+        elif self.mode == "max":
+            try:
+                from pc.brain.max_backend import MaxBrain
+                self.max = MaxBrain(SYSTEM)  # starts Claude Code now, so the first answer is faster
+            except ImportError:
+                self.max = None  # handle() explains what to install
 
     # ------------------------------------------------------------------ public
     def handle(self, text: str, session, screenshot_png: bytes | None = None) -> None:
+        with self._lock:
+            self._handle(text, session, screenshot_png)
+
+    def close(self) -> None:
+        """The call ended: free what the brain holds (the Claude Code process in max mode)."""
+        if self.max:
+            self.max.close()
+
+    def _handle(self, text: str, session, screenshot_png: bytes | None) -> None:
         actions.current_session = session
         try:
             if self.mode == "max":
-                from pc.brain import max_backend
-                reply = max_backend.think(text, self.history, screenshot_png, SYSTEM, session)
+                if self.max is None:
+                    reply = "The Max brain needs one more install on this PC: pip install claude-agent-sdk"
+                else:
+                    reply = self.max.ask(text, screenshot_png, session)
                 self._remember(text, reply)
             elif self.client is None:
                 reply = self._echo(text)

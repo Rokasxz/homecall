@@ -113,6 +113,7 @@ async def call(ws: WebSocket) -> None:
     finally:
         for t in tasks:
             t.cancel()
+        await asyncio.to_thread(getattr(brain, "close", lambda: None))  # e.g. stop Claude Code (max brain)
 
 
 def main() -> None:
