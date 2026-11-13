@@ -70,10 +70,16 @@ def check_libraries():
 def check_env():
     section("Settings (.env)")
     load_dotenv()
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        ok("ANTHROPIC_API_KEY is set", "the real brain will answer")
+    mode = os.environ.get("HOMECALL_BRAIN", "").strip().lower() or (
+        "api" if os.environ.get("ANTHROPIC_API_KEY") else "echo")
+    if mode == "echo":
+        warn("Brain mode: echo (no AI)", "fine for Server/Hands/Phone/Voice work")
     else:
-        warn("ANTHROPIC_API_KEY not set", "echo mode: fine for Server/Hands/Phone work")
+        ok(f"Brain mode in your .env: {mode}", "the app uses the real AI; check.py itself tests in echo mode "
+           "(fast, free); test the real Brain with team/demo_check.py")
+    # Everything below runs the Brain in echo mode: a real AI makes check.py slow,
+    # costs credits or Max usage, and can't be judged by a script anyway.
+    os.environ["HOMECALL_BRAIN"] = "echo"
 
 
 def check_screen():
@@ -138,7 +144,7 @@ def check_brain():
         if not callable(getattr(b, "handle", None)):
             fail("Brain has a handle() method")
         else:
-            ok("Brain() builds", "real AI" if b.client else "echo mode")
+            ok("Brain() builds", f"{b.mode} mode")
     except Exception as e:  # noqa: BLE001
         fail("pc/brain/agent.py imports", f"{type(e).__name__}: {e}")
 
