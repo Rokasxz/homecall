@@ -36,7 +36,11 @@ Stop it any time by saying "stop the coordinator".
 4. **Shout only when it matters**: add a comment on the status issue (which
    notifies people) only if `main` broke, someone is blocked, or a PR has waited
    over an hour. Otherwise just update the body.
-5. **Report to Rokas** in two or three lines: what changed, what's waiting for him.
+5. **Sort new bugs** (the Bug form, `.github/ISSUE_TEMPLATE/bug.md`): `gh issue list`.
+   For each new issue from a collaborator, comment once: whose area it is (CLAUDE.md
+   "Who owns what", mention them), and what's missing to reproduce it. If it contains
+   the tunnel address, the pairing code or a key, don't repeat it: tell Rokas to edit it out.
+6. **Report to Rokas** in two or three lines: what changed, what's waiting for him.
 
 ## Keep it useful, not noisy
 - Report only what changed since the last round. Blocking problems first, at most 3 items.
@@ -45,6 +49,9 @@ Stop it any time by saying "stop the coordinator".
 - Read each PR's "Assumptions I made about other areas" and check them against
   `main` and the contract in CLAUDE.md. If one is wrong, say so in that PR's
   comment (`--note`) and name the owner of that area.
+- A PR can change the contract without touching CLAUDE.md (new endpoints, headers,
+  message types, as in #39). `review_pr.py` only sees CLAUDE.md edits, so then say
+  "Almost: Rokas adds the contract lines first" and fix the verdict line by hand.
 - Two open PRs that change the same file (`status.py` flags "same files as #N"):
   say which to merge first; the other updates from main afterwards. A PR that
   contains another PR's commits ("builds on #N"): give Rokas the merge order.
