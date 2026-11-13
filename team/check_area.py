@@ -28,8 +28,9 @@ def main() -> None:
         print(f"{a.author} is not in the team list (team/status.py PEOPLE); the lead reviews this PR by hand.")
         sys.exit(1)
     name, area, prefixes = status.PEOPLE[a.author]
-    files = subprocess.run(["git", "diff", "--name-only", f"{a.base}...{a.head}"],
-                           capture_output=True, text=True, check=True).stdout.split()
+    # -z: names end with a zero byte, so "Meeting notes - READ ME.txt" or "ąčę.txt" stay one name each.
+    files = [f for f in subprocess.run(["git", "diff", "--name-only", "-z", f"{a.base}...{a.head}"],
+                                       capture_output=True, text=True, check=True).stdout.split("\0") if f]
     outside = [f for f in files if f != "TASKS.md" and not status.in_area(a.author, f)]
     tasks_ok, note = True, ""
     if "TASKS.md" in files and "." not in prefixes:
