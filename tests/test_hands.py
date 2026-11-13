@@ -320,10 +320,7 @@ def test_every_tool_is_covered():
 
 WEIRD = ["", " ", "../../../../etc/passwd", "C:\\Windows\\System32", "a" * 5000,
          "~root", "Desktop/\n/etc",
-         # Bug reported to Hands: _resolve() raised ValueError on a null character.
-         # Fixed in Hands PR 9 (feature/hands-test-tools). Not strict, so this passes
-         # both before and after that merge; drop the xfail once PR 9 is in main.
-         pytest.param("\x00", marks=pytest.mark.xfail(strict=False, reason="Hands bug: null char raises (fixed in PR 9)"))]
+         "\x00"]  # null character: was a Hands bug, fixed in PR 9
 
 
 @pytest.mark.parametrize("bad", WEIRD)

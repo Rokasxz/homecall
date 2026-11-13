@@ -82,3 +82,7 @@ PR 13 96 passed, **9 known gaps fixed**.
 
 New tests: `tests/test_power.py` (lock/sleep ask first; No = nothing happens),
 terminal-guard tests in `test_safety.py`.
+
+**Update after #12, #13, #14 merged:** gaps #3, #8, #9 are fixed in main; their
+tests are now normal tests that must stay green. Main: 106 passed, 3 known gaps
+left (lead: lockout, second phone; Voice + lead: /voice without the code).
