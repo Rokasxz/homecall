@@ -130,6 +130,8 @@ and the Hands are unchanged):
 - `POST /voice/call/start {"code": "123456"}` -> `{"signed_url": ..., "token": ...}`
   (5 wrong codes = 60 s lock).
 - `GET /voice/call/files?token=...` -> files sent during that call.
+- `GET /voice/call/screen?token=...` -> the live PC screen (one JPEG; the call page
+  asks again about every 0.6 s).
 - `POST /voice/llm/<secret>/chat/completions` -> OpenAI-style streaming endpoint that
   ElevenLabs calls; it forwards to the team Brain. `<secret>` = `HOMECALL_AGENT_SECRET`.
 - Keys in `.env` (never committed): `ELEVENLABS_API_KEY`, `ELEVENLABS_AGENT_ID`,

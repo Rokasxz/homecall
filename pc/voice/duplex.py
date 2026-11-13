@@ -265,6 +265,16 @@ async def call_start(request: Request):
     return {"signed_url": url, "token": CALL.token}
 
 
+@router.get("/call/screen")
+def call_screen(token: str):
+    """The live PC screen for the voice call page (one JPEG; the page asks again every ~0.6 s)."""
+    if not hmac.compare_digest(token.encode(), CALL.token.encode()):
+        return JSONResponse({"detail": "Not in a call."}, status_code=403)
+    from fastapi.responses import Response
+    from pc import screen
+    return Response(screen.capture_jpeg(960, 55), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
 @router.get("/call/files")
 def call_files(token: str):
     if not hmac.compare_digest(token.encode(), CALL.token.encode()):
