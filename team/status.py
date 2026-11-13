@@ -48,6 +48,14 @@ def ago(iso: str | None) -> str:
     return f"{mins} min ago" if mins < 90 else f"{mins // 60} h {mins % 60} min ago"
 
 
+def later(a: str | None, b: str | None) -> str | None:
+    """The later of two times. Compares real times: git writes "+02:00", GitHub writes "Z"."""
+    if not a or not b:
+        return a or b
+    ta, tb = (datetime.fromisoformat(x.replace("Z", "+00:00")) for x in (a, b))
+    return a if ta >= tb else b
+
+
 def section_owner_by_line(text: str) -> list[str | None]:
     """For each line of TASKS.md (1-based index -> owner login or None)."""
     owners, current = [None], None
@@ -133,12 +141,16 @@ def collect() -> dict:
         p["overlaps"] = sorted({n for f in p["files"] for n in seen.get(f, []) if n != p["number"]})
 
     pr_branches = {p["branch"] for p in out_prs}
+    # Branches of closed PRs with no commits after closing: given up, not "work without a PR".
+    closed_heads = {(c["headRefName"], c["headRefOid"]) for c in
+                    gh_json("pr", "list", "--repo", REPO, "--state", "closed", "--limit", "100",
+                            "--json", "headRefName,headRefOid")}
     branches = []
     refs = run("git", "for-each-ref", "refs/remotes/origin", "--format=%(refname:short)|%(objectname)|%(committerdate:iso-strict)")
     for line in refs.splitlines():
         ref, sha, date = line.split("|")
         name = ref.removeprefix("origin/")
-        if name in ("main", "HEAD", "origin") or name in pr_branches:
+        if name in ("main", "HEAD", "origin") or name in pr_branches or (name, sha) in closed_heads:
             continue
         merged = subprocess.run(["git", "merge-base", "--is-ancestor", sha, "origin/main"]).returncode == 0
         if merged:
@@ -162,20 +174,19 @@ def collect() -> dict:
     for p in out_prs:
         if p["author"] in people:
             people[p["author"]]["open_prs"].append(p["number"])
-            last = people[p["author"]]["last_activity"]
-            people[p["author"]]["last_activity"] = max(filter(None, [last, p["updated"]]))
+            # Their last commit, not the PR's "updated" time (that also moves when someone comments).
+            pushed = run("git", "show", "-s", "--format=%cI", p["head_sha"], check=False).strip() or p["updated"]
+            people[p["author"]]["last_activity"] = later(people[p["author"]]["last_activity"], pushed)
     for b in branches:
         if b["author"] in people:
             people[b["author"]]["branches_without_pr"].append(b["branch"])
-            last = people[b["author"]]["last_activity"]
-            people[b["author"]]["last_activity"] = max(filter(None, [last, b["date"]]))
+            people[b["author"]]["last_activity"] = later(people[b["author"]]["last_activity"], b["date"])
     merged = gh_json("pr", "list", "--repo", REPO, "--state", "merged", "--limit", "100", "--json", "number,title,author,mergedAt")
     for m in merged:
         login = m["author"]["login"]
         if login in people:
             people[login].setdefault("merged", []).append(f"#{m['number']} {m['title']}")
-            last = people[login]["last_activity"]
-            people[login]["last_activity"] = max(filter(None, [last, m["mergedAt"]]))
+            people[login]["last_activity"] = later(people[login]["last_activity"], m["mergedAt"])
 
     runs = gh_json("run", "list", "--repo", REPO, "--branch", "main", "--limit", "1",
                    "--json", "conclusion,status,headSha,url") or []
