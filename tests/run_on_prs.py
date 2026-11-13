@@ -56,10 +56,11 @@ def run_tests(ref: str, tests: dict[str, str]) -> dict:
                            cwd=wt, capture_output=True, text=True, timeout=600)
         out = r.stdout + r.stderr
         counts = {k: int(n) for n, k in re.findall(r"(\d+) (passed|failed|error|errors|xfailed|xpassed|skipped)", out.splitlines()[-1] if out.strip() else "")}
-        problems = re.findall(r"^(?:FAILED|ERROR|XPASS) (\S+)", out, re.M)
-        return {"counts": counts, "problems": problems, "tail": out.strip().splitlines()[-1:] }
+        problems = re.findall(r"^(?:FAILED|ERROR) (\S+)", out, re.M)
+        fixed = re.findall(r"^XPASS (\S+)", out, re.M)  # a known gap that now works
+        return {"counts": counts, "problems": problems, "fixed": fixed}
     except Exception as e:  # noqa: BLE001
-        return {"counts": {}, "problems": [f"could not run: {e}"], "tail": []}
+        return {"counts": {}, "problems": [f"could not run: {e}"], "fixed": []}
     finally:
         subprocess.run(["git", "worktree", "remove", "--force", str(wt)], cwd=ROOT, capture_output=True)
         shutil.rmtree(tmp, ignore_errors=True)
@@ -89,7 +90,9 @@ def main() -> None:
         mark = "OK " if not r["problems"] else "!! "
         print(f"{mark}{r['target']:<7} {line}   {r['title']}")
         for p in r["problems"]:
-            print(f"      - {p}")
+            print(f"      - BROKEN {p}")
+        for p in r["fixed"]:
+            print(f"      + FIXED  {p}")
 
 
 if __name__ == "__main__":
