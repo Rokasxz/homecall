@@ -199,7 +199,8 @@ def main() -> None:
         print(f"  WARNING: HOMECALL_HOST={HOST}: devices on this network can reach the server")
         print(f"  directly (http://<this PC's IP>:{PORT}). Only for a quick test at home.")
     print()
-    uvicorn.run(app, host=HOST, port=PORT, log_level="warning")
+    # "info" lists every page load and call attempt (start.py turns it on and writes it to homecall.log).
+    uvicorn.run(app, host=HOST, port=PORT, log_level=os.environ.get("HOMECALL_LOG_LEVEL", "warning"))
 
 
 if __name__ == "__main__":

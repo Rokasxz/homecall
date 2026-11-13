@@ -11,24 +11,27 @@ sent back. A 2-day hackathon project.
 
 ## Connect your own computer (one command)
 
-After the install steps below, run:
+Call YOUR computer from YOUR phone, from anywhere (the phone doesn't need the same Wi-Fi).
+Once, install: the steps below (`pip install -r requirements.txt` in the venv) and
+`cloudflared` (Mac `brew install cloudflared`, Windows `winget install Cloudflare.cloudflared`).
+Ask Rokas privately for the two team keys (Claude = the AI, ElevenLabs = voice).
+
+Then every time:
 ```
+git pull origin main
 python start.py
 ```
-It starts the app, opens a tunnel so your phone can reach your computer from anywhere,
-points YOUR voice agent at it (if `ELEVENLABS_API_KEY` is in your `.env`), and prints:
-the phone address, the voice-call address (`/voice/call`, Safari), and the pairing code.
-Keep the window open; Ctrl+C stops everything. Use it to test on your own PC and find bugs
-(GitHub -> Issues -> New issue -> Bug).
-- **Real AI on your PC:** ask Rokas privately for the team's Claude API key and put it in
-  `.env` as `ANTHROPIC_API_KEY=...` (and `HOMECALL_BRAIN=api`, or no `HOMECALL_BRAIN` line).
-  It costs the team a cent or two per request, so test, don't leave it chatting. Other
-  option: `HOMECALL_BRAIN=max`, `pip install claude-agent-sdk` and `claude auth login` once
-  (your own Claude subscription). Without either it runs in echo mode (no AI).
-- **Voice on your PC:** ask Rokas privately for the ElevenLabs key, put it in `.env` as
-  `ELEVENLABS_API_KEY=...`; `start.py` creates your own voice agent the first time.
-- **Needs** `cloudflared` (Mac `brew install cloudflared`, Windows
-  `winget install Cloudflare.cloudflared`). If your Wi-Fi blocks it, use your phone's hotspot.
+- The first time it asks for the two keys: paste each one and press Enter (typing is hidden).
+  They stay on your computer only, in `.env`. Just Enter skips one (no AI / no voice).
+- It prints the phone address, the voice-call address (`/voice/call`, open it in Safari or
+  Chrome, not inside Instagram/Discord) and a 6-digit code. Open the address on your phone,
+  type the code, and you control your computer. The address and code change every start.
+- Keep the window open; Ctrl+C stops everything. Every phone visit is written to
+  `homecall.log` (private: never post it). Found a bug? GitHub -> Issues -> New issue -> Bug.
+- The Claude key costs the team a cent or two per request: test, don't leave it chatting.
+  Other option for the AI: `HOMECALL_BRAIN=max` in `.env`, `pip install claude-agent-sdk` and
+  `claude auth login` once (your own Claude subscription).
+- If your Wi-Fi blocks the tunnel (start.py says so), connect the computer to your phone's hotspot.
 
 ## Run it (on the PC)
 
