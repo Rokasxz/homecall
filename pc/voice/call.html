@@ -83,12 +83,9 @@
     $("err").textContent = "";
     const code = $("code").value.trim();
     if (code.length !== 6) { $("err").textContent = "The code has 6 digits."; return; }
-    try {
-      await navigator.mediaDevices.getUserMedia({ audio: true });  // ask for the mic first
-    } catch (e) {
-      $("err").textContent = "Microphone blocked. Allow it (Safari: aA -> Website Settings), or open this page in Safari, not inside Instagram.";
-      return;
-    }
+    // 1) Check the code and get the call token. 2) Show the live screen right away.
+    // 3) Then start the voice part; if the mic or the voice service fails, keep the
+    //    screen and say what's wrong instead of hiding everything.
     const r = await fetch("/voice/call/start", { method: "POST", headers: { "Content-Type": "application/json" },
                                                  body: JSON.stringify({ code }) });
     const data = await r.json().catch(() => ({}));
@@ -96,12 +93,21 @@
     token = data.token;
     show(true);
     loadScreen();
+    filesTimer = setInterval(pollFiles, 2000);
+    $("state").textContent = "Starting the voice...";
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true });  // ask for the mic
+    } catch (e) {
+      $("state").textContent = "No microphone: you can watch the screen, but not talk.";
+      $("err").textContent = "Microphone blocked. Allow it (Safari: aA -> Website Settings -> Microphone), or open this page in Safari, not inside Instagram/Discord. Then tap Hang up and call again.";
+      return;
+    }
     try {
       conversation = await Conversation.startSession({
         signedUrl: data.signed_url,
         onConnect: () => { $("state").textContent = "Connected. Just talk."; },
-        onDisconnect: () => { $("state").textContent = "Call ended."; $("orb").className = ""; clearInterval(filesTimer); },
-        onError: (e) => { $("err").textContent = "Call error: " + (e && e.message ? e.message : e); },
+        onDisconnect: () => { $("state").textContent = "Voice ended. Tap Hang up, then call again."; $("orb").className = ""; },
+        onError: (e) => { $("err").textContent = "Voice error: " + (e && e.message ? e.message : e); },
         onModeChange: (m) => {
           const mode = m && m.mode ? m.mode : m;
           $("orb").className = mode === "speaking" ? "speaking" : "listening";
@@ -113,10 +119,9 @@
           addLog(text, me);
         },
       });
-      filesTimer = setInterval(pollFiles, 2000);
     } catch (e) {
-      show(false);
-      $("err").textContent = "Couldn't start the call: " + (e && e.message ? e.message : e);
+      $("state").textContent = "The voice didn't start (the screen still works).";
+      $("err").textContent = "Couldn't start the voice: " + (e && e.message ? e.message : e);
     }
   };
 
