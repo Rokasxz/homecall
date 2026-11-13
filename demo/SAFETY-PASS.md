@@ -106,3 +106,21 @@ play real music.
 For the pitch: files are locked to 4 folders and dangerous file actions ask
 first, but keyboard and mouse act like a person at the PC. A real product
 needs per-app permissions.
+
+---
+
+# Safety pass #5 — after Server #25 and Hands #24/#28 (2026-11-13, evening)
+
+main: 154 passed. Hands #28: all 16 click gaps fixed.
+
+| # | Finding | Who | Status |
+|---|---|---|---|
+| 1 | Server on 0.0.0.0 | Lead | **Fixed in #25** (127.0.0.1; `HOMECALL_HOST` to opt in) |
+| 2 | No wrong-code lockout | Lead | **Fixed in #25** (5 wrong → 60 s lock); test is now a guard |
+| 5 | Second phone joins a call | Lead | **Fixed in #25**; test is now a guard |
+| 7 | Outbox never cleaned | Lead | **Fixed in #25** (cleaned at start) |
+| 13 | Click skips Yes/No | Hands | **Fixed in #24**; double-click + Lithuanian + more words in **#28** |
+| 15 | **Lockout locks out the owner too**: anyone with the tunnel address can send 5 wrong codes a minute and nobody (incl. the owner) can pair, forever. In live test #1 the whole team shared one lockout + one call. | Lead | New, medium. Fix: count wrong codes per client (`CF-Connecting-IP` header from cloudflared) |
+| 16 | **Phone hides the reason**: on refusal the server sends `error` ("Wrong pairing code" / "Another phone is already on the call" / "locked"), but `ws.onclose` overwrites it with "Call ended." (seen on an iPhone in live test #1) | Phone | New, medium for the demo |
+| 17 | Mac hides extensions, so a program shows as "Evil" and a double-click doesn't ask | Hands | New, low (#28 checks names like `.app`/setup) |
+| 6 | /voice/* without the code | Voice + Lead | Still open |

@@ -46,7 +46,7 @@ def wrong_code():
 
 # ------------------------------------------------------------ server (lead) -----
 
-@pytest.mark.xfail(strict=False, reason="Server: no lockout after wrong codes yet (TASKS.md)")
+# Was a known gap; fixed in Server PR 25. Now a guard: must stay green.
 def test_lockout_after_5_wrong_codes(client):
     for _ in range(5):
         with client.websocket_connect("/ws") as ws:
@@ -57,7 +57,7 @@ def test_lockout_after_5_wrong_codes(client):
         assert first_json(ws)["type"] != "welcome", "right code still works after 5 wrong ones"
 
 
-@pytest.mark.xfail(strict=False, reason="Server: a second phone can join a running call (TASKS.md)")
+# Was a known gap; fixed in Server PR 25. Now a guard: must stay green.
 def test_only_one_phone_at_a_time(client):
     with client.websocket_connect("/ws") as a:
         a.send_json({"type": "hello", "code": server.PAIR_CODE})
