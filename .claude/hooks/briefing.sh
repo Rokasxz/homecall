@@ -42,5 +42,23 @@ if command -v gh >/dev/null 2>&1 && [ -n "$areas" ]; then
       --jq ".[] | select(any(.files[]; .path | startswith(\"${a%/}\"))) | \"- Open PR touching $a: #\(.number) \(.title) by \(.author.login)\"" 2>/dev/null
   done
 fi
+# This person's next step, from the pinned Team status issue (#8).
+if command -v gh >/dev/null 2>&1 && [ -n "$areas" ]; then
+  first=$(echo "$areas" | awk '{print $1}')
+  if [ "$first" = "." ]; then
+    who="Rokas"
+  else
+    who=$(git show origin/main:TASKS.md 2>/dev/null | grep -E "^## " | grep -F "\`${first}" | head -1 | sed -E 's/^## ([^:,]+).*/\1/')
+  fi
+  case "$who" in nojuzaid-spec) alias="Nojus" ;; Rokas) alias="Rokasxz" ;; *) alias="$who" ;; esac
+  if [ -n "$who" ]; then
+    body=$(gh issue view 8 --repo Rokasxz/homecall --json body -q .body 2>/dev/null)
+    step=$(printf '%s\n' "$body" | grep -F -e "- **${who}:**" -e "- **${alias}:**" | head -1 | sed -E 's/^- \*\*[^*]+:\*\* ?//' | cut -c1-1200)
+    if [ -n "$step" ]; then
+      echo "- YOUR NEXT STEP (from the pinned Team status issue #8, set by the lead): $step"
+      echo "  Start with this unless the person asks for something else."
+    fi
+  fi
+fi
 echo "- Team status and each person's next step: https://github.com/Rokasxz/homecall/issues/8"
 exit 0
