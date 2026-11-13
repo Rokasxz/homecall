@@ -156,10 +156,9 @@ def test_click_must_say_what(asking, what):
     assert fake.clicks == []
 
 
-# Known gaps (posted on Hands PR 24). Not strict: a fix shows as XPASS, never turns CI red.
+# Were known gaps; fixed in Hands PR 28. Now guards: must stay green.
 
 @needs_guard
-@pytest.mark.xfail(strict=False, reason="Hands: double-clicking a script/app opens (runs) it with no Yes/No")
 @pytest.mark.parametrize("what", ["run-me.command", "setup.exe icon", "Evil.app"])
 def test_double_click_on_a_program_asks(asking, what):
     fake, s = asking
@@ -168,7 +167,6 @@ def test_double_click_on_a_program_asks(asking, what):
 
 
 @needs_guard
-@pytest.mark.xfail(strict=False, reason="Hands: Lithuanian button words aren't risky words yet")
 @pytest.mark.parametrize("what", ["Siųsti", "Ištrinti", "Pirkti", "Leisti", "Patvirtinti"])
 def test_lithuanian_risky_buttons_ask(asking, what):
     fake, s = asking
@@ -177,7 +175,6 @@ def test_lithuanian_risky_buttons_ask(asking, what):
 
 
 @needs_guard
-@pytest.mark.xfail(strict=False, reason="Hands: these risky words are missing from RISKY_WORDS")
 @pytest.mark.parametrize("what", ["Replace", "Overwrite", "Share", "Reply", "Forward", "Upload", "Open Anyway"])
 def test_more_risky_words_ask(asking, what):
     fake, s = asking

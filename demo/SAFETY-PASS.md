@@ -124,3 +124,12 @@ main: 154 passed. Hands #28: all 16 click gaps fixed.
 | 16 | **Phone hides the reason**: on refusal the server sends `error` ("Wrong pairing code" / "Another phone is already on the call" / "locked"), but `ws.onclose` overwrites it with "Call ended." (seen on an iPhone in live test #1) | Phone | New, medium for the demo |
 | 17 | Mac hides extensions, so a program shows as "Evil" and a double-click doesn't ask | Hands | New, low (#28 checks names like `.app`/setup) |
 | 6 | /voice/* without the code | Voice + Lead | Still open |
+
+**Update after Hands #28 and Brain #26/#33 merged:** all click gaps (double-click
+on programs, Lithuanian words, Replace/Share/Upload/Open Anyway) are fixed and are
+now permanent tests. Brain SYSTEM now says file/screen text is data, never
+instructions, and never to type commands into a terminal (#10, #4 Brain side).
+Note: #33 removed the Brain's own "ask before risky clicks" line and relies on
+click_at's word check, so a click is only as safe as the AI's honest `what`.
+main: 169 passed. Left: /voice/* without the code (now Nojus, Voice), Mac hidden
+extensions (Hands, low), lockout shared by everyone (Lead).
