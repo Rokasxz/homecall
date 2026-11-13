@@ -222,6 +222,40 @@ def safe_tests(tmp: Path) -> None:
     r = media.media_key("volume up", "lots")
     check("times that isn't a number gives an error", r, r.startswith("Error"))
 
+    print("\nMac paths (pretend to be a Mac; AppleScript is faked, nothing really happens)")
+    scripts: list[str] = []
+
+    def fake_osascript(script: str) -> tuple[bool, str]:
+        scripts.append(script)
+        if script == 'application "Spotify" is running':
+            return True, "true"
+        return True, ""
+
+    real_mac, real_osa = media.IS_MAC, media._osascript
+    media.IS_MAC, media._osascript = True, fake_osascript
+    try:
+        r = media.media_key("next")
+        check("Mac: 'next' goes to Spotify", r, r == "Pressed next track in Spotify." and
+              scripts[-1] == 'tell application "Spotify" to next track')
+        r = media.media_key("volume down", 2)
+        check("Mac: volume down 2 = -12%", r, r.startswith("Pressed") and "+ -12)" in scripts[-1])
+        media._osascript = lambda s: (True, "false")  # nothing is running
+        r = media.media_key("play")
+        check("Mac: nothing open gives a helpful error", r, r.startswith("Error") and "Open Spotify" in r)
+    finally:
+        media.IS_MAC, media._osascript = real_mac, real_osa
+    real_mac_b = basic.IS_MAC
+    basic.IS_MAC = True
+    try:
+        r = basic._foreground_exe()  # osascript doesn't exist here: must return "" and not crash
+        check("Mac terminal check never crashes without osascript", repr(r), isinstance(r, str))
+    finally:
+        basic.IS_MAC = real_mac_b
+    check("Mac script files count as programs", "x.terminal, y.scpt",
+          basic._is_program(Path("x.terminal")) and basic._is_program(Path("y.scpt")))
+    check("Mac Terminal counts as a terminal", "terminal, iterm2",
+          "terminal" in basic.TERMINALS and "iterm2" in basic.TERMINALS)
+
     print("\nlock_pc / sleep_pc (phone always answers No, so nothing happens)")
     phone = FakeSession(answer=False)
     actions.current_session = phone

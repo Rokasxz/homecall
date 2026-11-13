@@ -181,7 +181,8 @@ def find_file(name: str) -> str:
 # Opening one of these RUNS it. Only after a Yes on the phone.
 PROGRAM_EXTS = {".exe", ".bat", ".cmd", ".com", ".msi", ".msp", ".scr", ".pif", ".lnk", ".url", ".reg",
                 ".ps1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".hta", ".jar", ".py", ".pyw",
-                ".sh", ".command", ".app", ".pkg", ".dmg", ".action", ".workflow", ".run", ".bin", ".appimage"}
+                ".sh", ".command", ".app", ".pkg", ".dmg", ".action", ".workflow", ".run", ".bin", ".appimage",
+                ".scpt", ".applescript", ".terminal"}  # Mac: AppleScript, and .terminal files run a command
 
 
 def _is_program(p: Path) -> bool:
@@ -405,11 +406,22 @@ def open_app(name: str) -> str:
 # ------------------------------------------------------- keyboard & mouse -------
 
 TERMINALS = {"cmd.exe", "powershell.exe", "pwsh.exe", "windowsterminal.exe", "conhost.exe", "openconsole.exe",
-             "mintty.exe", "bash.exe", "wsl.exe", "alacritty.exe", "wezterm-gui.exe", "hyper.exe", "putty.exe"}
+             "mintty.exe", "bash.exe", "wsl.exe", "alacritty.exe", "wezterm-gui.exe", "hyper.exe", "putty.exe",
+             # Mac app names, as System Events reports them (lowercased)
+             "terminal", "iterm2", "iterm", "warp", "alacritty", "kitty", "wezterm-gui", "ghostty", "hyper"}
 
 
 def _foreground_exe() -> str:
-    """Name of the program whose window is in front, e.g. 'notepad.exe' (Windows only; '' elsewhere)."""
+    """Name of the program whose window is in front, e.g. 'notepad.exe' or 'terminal' (Windows and Mac; '' if unknown)."""
+    if IS_MAC:
+        try:
+            out = subprocess.run(
+                ["osascript", "-e",
+                 'tell application "System Events" to get name of first application process whose frontmost is true'],
+                capture_output=True, text=True, timeout=2)
+            return out.stdout.strip().lower()
+        except Exception:  # noqa: BLE001
+            return ""
     if not IS_WIN:
         return ""
     try:

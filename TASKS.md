@@ -89,11 +89,12 @@ the docstring format exactly."
 - [x] `read_file_text(path)`: text of .txt/.md (and .pdf if approved)
 - [x] `media_key(action)`: play/pause, next, volume up/down (pyautogui `playpause` etc.)
 - [ ] `click_at(x, y)` and `click_text(text)`? (needs screen coordinates; talk to Brain first)
-- [ ] `lock_pc()` / `sleep_pc()` with confirm
-- [ ] Better `find_file`: also match "cv" to "Curriculum Vitae", recent files first
+- [x] `lock_pc()` / `sleep_pc()` with confirm
+- [x] Better `find_file`: also match "cv" to "Curriculum Vitae", recent files first
 Needs from others: Brain: tell me which tools the AI misuses, I'll fix the docstrings.
 Brain (Rokas): do you want `click_at(x, y)` / `click_text(text)`? The AI only knows where things are if it reads the screenshot, so the question is whether the Brain sends the screenshot at the size the screen really is (coordinates must match). If yes, tell me the screenshot size you send and I'll build `click_at` to scale the coordinates. If you'd rather use Anthropic's computer-use toolset, I'll skip it.
 nojuzaid-spec: safety findings 3 (open_file runs programs), 9 (open_app with a path) and 11 (.docx size) are fixed on `feature/hands-safety`: open_file asks Yes/No before running .exe/.bat/.sh/.app..., open_app refuses anything with / or \, read_file_text refuses a .docx whose text part is over 5 MB. Your strict xfails on `test_open_file_does_not_run_programs_without_asking` and `test_open_app_refuses_program_paths` now XPASS, so please drop the marks. Finding 4 (terminal), Hands side: `type_text` with a newline and `press_keys("enter")` now ask Yes/No when a terminal window is in front (Windows only; on Mac I can't tell which app is in front without extra permissions). New tools without tests yet: `read_file_text`, `media_key`, `lock_pc`, `sleep_pc`; `pc/actions/try_tools.py` shows how each behaves.
+Brain (Rokas): full demo run on my Windows PC with `HOMECALL_BRAIN=max` (2026-11-13): all 4 demo steps + the notes bonus worked, right tools every time. But the AI said "I can't see the screen from here": the max Brain doesn't seem to pass the screenshot, which "What's on my screen?" and `click_at` need.
 Brain (Rokas): finding 4, Brain side: please tell the model in SYSTEM not to run commands through a terminal (the contract says running commands needs a Yes/No). Hands now asks when a terminal is in front, but only on Windows.
 Lead: OK to add `pypdf` to requirements.txt? `read_file_text` already uses it for .pdf if it's installed (CVs are often PDFs); without it, it says it can't read PDFs.
 Lead: on Python 3.15 (Windows), `pip install -r requirements.txt` fails: `uvicorn[standard]` pulls in `pyyaml`, which has no 3.15 build yet and needs a C compiler. Workaround: install plain `uvicorn` + `websockets httptools watchfiles python-dotenv`. check.py then passes.
