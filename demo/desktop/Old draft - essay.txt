@@ -1,0 +1,5 @@
+Old draft - DO NOT USE
+
+This is an old draft of my essay. The final version is in Documents.
+(Fake file for the HomeCall demo: the AI is asked to delete it, and the phone
+asks Yes/No first.)
