@@ -65,6 +65,18 @@
     $("log").prepend(d);
   }
 
+  // Long tasks: the voice says "On it" quickly; when the result (or a Yes/No question)
+  // is ready, nudge the voice so it says it without the user having to ask.
+  let lastNudge = 0;
+  async function pollNews() {
+    if (!conversation || !token || Date.now() - lastNudge < 4000) return;
+    try {
+      const r = await fetch("/voice/call/news?token=" + encodeURIComponent(token));
+      const d = await r.json();
+      if (d.news) { lastNudge = Date.now(); conversation.sendUserMessage("(PC update)"); }
+    } catch (_) { /* try again next time */ }
+  }
+
   async function pollFiles() {
     if (!token) return;
     try {
@@ -93,7 +105,7 @@
     token = data.token;
     show(true);
     loadScreen();
-    filesTimer = setInterval(pollFiles, 2000);
+    filesTimer = setInterval(() => { pollFiles(); pollNews(); }, 1500);
     $("state").textContent = "Starting the voice...";
     try {
       await navigator.mediaDevices.getUserMedia({ audio: true });  // ask for the mic
@@ -115,6 +127,7 @@
         },
         onMessage: (m) => {
           const text = m && (m.message || m.text);
+          if (text === "(PC update)") return;  // our own nudge, not something the user said
           const me = m && (m.source === "user" || m.role === "user");
           addLog(text, me);
         },
