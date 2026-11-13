@@ -34,7 +34,7 @@ def main() -> None:
     if len(sys.argv) > 1 and secret:
         base = sys.argv[1].rstrip("/")
         print("\nIn ElevenLabs -> your agent -> LLM -> Custom LLM, paste:")
-        print(f"  Server URL:  {base}/voice/llm/{secret}/v1")
+        print(f"  Server URL:  {base}/voice/llm/{secret}")
         print("  Model ID:    homecall")
         print(f"\nThen open on the phone (Safari): {base}/voice/call")
 

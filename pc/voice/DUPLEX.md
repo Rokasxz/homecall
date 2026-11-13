@@ -50,3 +50,11 @@ update the Server URL in the agent.
 
 ## Test without a phone
 `python -m pytest tests/test_voice.py -q` (no key, no network, fake Brain).
+
+## Tested live (2026-11-13)
+Agent created through the API (`llm: "custom-llm"`, `custom_llm.url` = the Server
+URL above without `/v1`, `platform_settings.auth.enable_auth: true`); all settings
+read back correctly. A turn sent through ElevenLabs reached this PC through the
+tunnel, went to the team Brain (echo mode on this laptop), used `list_files`, and
+came back as speech (~6 s with the "..." buffer). An incoming turn interrupted the
+greeting, as it should.
