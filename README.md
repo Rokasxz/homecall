@@ -14,15 +14,16 @@ sent back. A 2-day hackathon project.
 Call YOUR computer from YOUR phone, from anywhere (the phone doesn't need the same Wi-Fi).
 Once, install: the steps below (`pip install -r requirements.txt` in the venv) and
 `cloudflared` (Mac `brew install cloudflared`, Windows `winget install Cloudflare.cloudflared`).
-Ask Rokas privately for the two team keys (Claude = the AI, ElevenLabs = voice).
+Once, accept the GitHub invite to the private team-keys repo (Claude = the AI, ElevenLabs =
+voice): https://github.com/Rokasxz/homecall-keys/invitations
 
 Then every time:
 ```
 git pull origin main
 python start.py
 ```
-- The first time it asks for the two keys: paste each one and press Enter (typing is hidden).
-  They stay on your computer only, in `.env`. Just Enter skips one (no AI / no voice).
+- It never asks for keys: it copies them from that private repo into your `.env` with your
+  GitHub login (the same one you push with). No keys yet? It says so; accept the invite.
 - It prints the phone address and a 6-digit code. Open the address on your phone (Safari or
   Chrome, not inside Instagram/Discord), type the code, and choose **Voice call** (talk like a
   phone call) or **Type** (write, see the live screen). The address and code change every start.

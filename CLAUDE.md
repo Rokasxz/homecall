@@ -54,6 +54,8 @@ section of TASKS.md.
 - If your change touches the contract below, update it in the same change and
   tell the person to warn the team.
 - Never put an API key in code or in a committed file. It lives in `.env` (gitignored).
+  The team's keys live in the PRIVATE repo Rokasxz/homecall-keys; `python start.py` copies
+  them into `.env` by itself. Never ask a teammate to paste a key, never copy them anywhere.
 
 ## How the parts talk to each other (the "contract")
 Change this only when the whole team agrees, and in the same Pull Request as the code.
