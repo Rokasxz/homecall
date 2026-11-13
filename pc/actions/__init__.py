@@ -9,9 +9,14 @@ automatically, so the format matters):
      Never raise; return "Error: ..." instead.
   4. Dangerous actions (delete, send money, run commands) must ask first:
          if not current_session.confirm("Delete X?"): return "Cancelled by the user."
-  5. Add the function to TOOLS at the bottom of basic.py (or your own file).
+  5. Add the function to TOOLS at the bottom of basic.py (or your own file,
+     and then add that file's TOOLS to the list below).
 """
-from pc.actions.basic import TOOLS  # noqa: F401  (re-exported for the Brain)
+from pc.actions.basic import TOOLS as _basic_tools
+from pc.actions.media import TOOLS as _media_tools
+
+# Every tool the Brain can use, from all the files in this folder.
+TOOLS = _basic_tools + _media_tools
 
 # The Brain sets this before it runs the tools, so tools can talk to the phone
 # (progress text, confirmations, sending files). See pc/session.py.
