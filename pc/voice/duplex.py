@@ -33,7 +33,7 @@ from pc.voice import eleven
 
 router = APIRouter()
 TURN_TIMEOUT = 120         # seconds one answer may take before we give up
-QUICK_WAIT = 8            # seconds to wait before saying "on it" (ElevenLabs gives up on long silences)
+QUICK_WAIT = 2.5          # seconds to wait for a fast answer before saying "on it" (ElevenLabs gives up fast)
 NEWS = "(PC update)"       # what the call page says when the PC has something new to say
 CONFIRM_TIMEOUT = 60       # seconds to wait for a spoken yes/no
 MAX_WRONG_CODES = 5
@@ -150,7 +150,7 @@ class VoiceCall:
         self.new_file = False
         self.busy = True
         threading.Thread(target=self._work, args=(text,), daemon=True).start()
-        return self._next(quick=True, idle="On it. That takes a few steps, I'll tell you when it's done.")
+        return self._next(quick=True, idle="On it, one moment.")
 
     @property
     def has_news(self) -> bool:
@@ -209,13 +209,11 @@ async def chat_completions(secret: str, request: Request):
     cid = "chatcmpl-" + secrets.token_hex(8)
 
     async def stream():
-        yield _chunk("... ", model, cid)  # ElevenLabs' tip for slower LLMs: a short buffer first
-        task = asyncio.create_task(asyncio.to_thread(CALL.turn, text))
-        while not task.done():
-            await asyncio.wait({task}, timeout=5)
-            if not task.done():
-                yield ": still working\n\n"  # SSE comment: keeps the connection alive
-        yield _chunk(task.result() or "", model, cid)
+        # turn() always answers within a few seconds (QUICK_WAIT): either the real answer
+        # or "On it". Results that come later are spoken via the call page's nudge
+        # (/voice/call/news). No "..." filler: ElevenLabs spoke it and stopped waiting.
+        said = await asyncio.to_thread(CALL.turn, text)
+        yield _chunk(said or "Okay.", model, cid)
         yield _chunk(None, model, cid, finish="stop")
         yield "data: [DONE]\n\n"
 
