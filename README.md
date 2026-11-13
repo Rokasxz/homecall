@@ -33,6 +33,12 @@ ANTHROPIC_API_KEY=sk-ant-...
 ```
 Without it the app runs in "echo mode": everything works except the thinking.
 
+**No API credits?** On a computer where Claude Code is installed and logged in
+(e.g. with a Claude Max plan), put `HOMECALL_BRAIN=max` in `.env` and run
+`pip install claude-agent-sdk`. The Brain then thinks through Claude Code's login.
+Start the server from a normal Terminal window. If replies say "Failed to
+authenticate", run `claude auth login` once in Terminal.
+
 ### From the phone (and from anywhere, not just home Wi-Fi)
 The phone's microphone only works on https pages, so we use a free tunnel that
 gives the PC an https address. Install `cloudflared` once
