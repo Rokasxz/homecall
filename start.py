@@ -286,8 +286,8 @@ def main() -> None:
     say("  HomeCall is connected. Keep this window open; Ctrl+C stops it.")
     say("=" * 64)
     if url:
-        say(f"  Phone (type + live screen): {url}")
-        say(f"  Phone (voice call, Safari): {url}/voice/call")
+        say(f"  Phone:                      {url}")
+        say( "                              (type the code, then choose Voice call or Type)")
     else:
         say(f"  Phone: not reachable. {tunnel_note}")
     say(f"  On this computer:           http://localhost:{PORT}")
