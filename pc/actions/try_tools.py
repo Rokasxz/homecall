@@ -7,6 +7,8 @@
     python -m pc.actions.try_tools --click  also clicks a button in a small window of its own and checks it was pressed
     python -m pc.actions.try_tools --icon   also double-clicks a harmless test program in its own Explorer window
                                             (Windows) and checks it asked first and did NOT run
+    python -m pc.actions.try_tools --more   also scrolls its own window, opens+closes a fresh Calculator,
+                                            and opens example.com in the browser (then closes that tab)
 
 Nothing real is deleted: the only thing removed at the end is the temporary
 test folder this script made itself, and its own copies in pc/outbox.
@@ -23,7 +25,7 @@ import zipfile
 from pathlib import Path
 
 import pc.actions as actions
-from pc.actions import basic, media, pointer, power
+from pc.actions import basic, extras, media, pointer, power
 
 RESULTS: list[tuple[bool, str]] = []
 
@@ -173,6 +175,33 @@ def safe_tests(tmp: Path) -> None:
         check("without a phone it refuses to run a .bat", r, r.startswith("Cancelled"))
         r = basic.open_file(str(tmp / "script.sh"))
         check("same for a .sh script", r, r.startswith("Cancelled"))
+
+        print("\nsend_folder_to_phone (temporary folder only)")
+        proj = tmp / "Projects"
+        (proj / "deep" / "notes2.txt").write_text("more notes", encoding="utf-8")
+        (proj / ".secret").write_text("hidden", encoding="utf-8")
+        phone = FakeSession(answer=False)
+        actions.current_session = phone
+        r = extras.send_folder_to_phone(str(proj))
+        cards = [e for e in phone.sent if e.get("type") == "file"]
+        token = cards[0]["url"].rsplit("/", 1)[-1] if cards else ""
+        zips = list(basic.OUTBOX.glob(f"{token}__*")) if token else []
+        names = zipfile.ZipFile(zips[0]).namelist() if zips else []
+        check("zips the folder and sends one 'file' card named Projects.zip", r,
+              bool(cards) and cards[0]["name"] == "Projects.zip" and len(zips) == 1)
+        check("the zip has the files (also 2 folders deep) but not hidden ones", ", ".join(names),
+              any(n.endswith("plan.txt") for n in names) and any(n.endswith("notes2.txt") for n in names)
+              and not any(".secret" in n for n in names))
+        for z in zips:
+            z.unlink()  # our own test copy
+        r = extras.send_folder_to_phone(str(tmp))
+        check("refuses a whole Desktop/Documents-level folder", r, r.startswith("Error"))
+        (tmp / "Empty").mkdir()
+        r = extras.send_folder_to_phone(str(tmp / "Empty"))
+        check("an empty folder gives an error", r, r.startswith("Error") and "empty" in r)
+        r = extras.send_folder_to_phone("C:\\Windows" if sys.platform == "win32" else "/etc")
+        check("refuses a folder outside the allowed ones", r, r.startswith("Error"))
+        actions.current_session = None
 
         print("\nread_file_text with a huge .docx")
         make_docx(tmp / "huge.docx", ["x" * (6 * 1024 * 1024)])
@@ -346,6 +375,76 @@ def safe_tests(tmp: Path) -> None:
         check("1024x768 screen is not scaled", str(pointer.to_screen(500, 400)), pointer.to_screen(500, 400) == (500, 400))
     finally:
         pointer._main_screen = real_screen
+
+    print("\nopen_url (the browser is faked, nothing opens)")
+    for good, expect in (("youtube.com", "https://youtube.com"),
+                         ("https://www.youtube.com/results?search_query=lofi", "https://www.youtube.com/results?search_query=lofi")):
+        check(f"'{good}' is a website I can open", str(extras._clean_url(good)), extras._clean_url(good) == expect)
+    for bad in ("file:///C:/Windows/System32", "javascript:alert(1)", "ms-settings:privacy", "https://user:pw@evil.com",
+                "hello world", "notes", "C:\\Users\\me\\Downloads\\evil.exe", ""):
+        check(f"refuses '{bad}'", str(extras._clean_url(bad)), extras._clean_url(bad) is None)
+    check("YouTube search link", extras.youtube_search_url("lo-fi beats"),
+          extras.youtube_search_url("lo-fi beats") == "https://www.youtube.com/results?search_query=lo-fi+beats")
+    opened: list[str] = []
+    real_open = extras.webbrowser.open
+    extras.webbrowser.open = lambda url, new=0: opened.append(url) or True
+    try:
+        r = extras.open_url("youtube.com")
+        check("open_url opens it in the browser", r, r.startswith("Opened youtube.com") and opened == ["https://youtube.com"])
+        r = extras.open_url("file:///C:/Windows")
+        check("open_url refuses a file: link and opens nothing", r, r.startswith("Error") and len(opened) == 1)
+    finally:
+        extras.webbrowser.open = real_open
+
+    print("\nclose_app (windows are faked, nothing is closed)")
+    fake_windows = [
+        {"hwnd": 1, "title": "Calculator", "exe": "applicationframehost"},
+        {"hwnd": 2, "title": "Settings", "exe": "applicationframehost"},
+        {"hwnd": 3, "title": "Gmail - Google Chrome", "exe": "chrome"},
+        {"hwnd": 4, "title": "YouTube - Google Chrome", "exe": "chrome"},
+        {"hwnd": 5, "title": "Downloads - File Explorer", "exe": "explorer"},
+        {"hwnd": 6, "title": "HomeCall", "exe": "python"},
+        {"hwnd": 7, "title": "Spotify Premium", "exe": "spotify"},
+    ]
+    for said, expect in (("Calculator", [1]), ("chrome", [3, 4]), ("Google Chrome", [3, 4]), ("Spotify", [7]),
+                         ("File Explorer", []), ("python", []), ("Word", [])):
+        got = [w["hwnd"] for w in extras.match_windows(said, fake_windows)]
+        check(f"close_app('{said}') would close {expect or 'nothing'}", str(got), got == expect)
+    if sys.platform == "win32":
+        real_windows = extras._windows
+        extras._windows = lambda: fake_windows
+        try:
+            actions.current_session = FakeSession(answer=False)
+            r = extras.close_app("Spotify")
+            check("close_app asks first; 'No' cancels", r, r.startswith("Cancelled"))
+            actions.current_session = None
+            r = extras.close_app("Spotify")
+            check("close_app without a phone refuses", r, r.startswith("Cancelled"))
+            r = extras.close_app("Word")
+            check("an app that isn't open gives an error", r, r.startswith("Error"))
+        finally:
+            extras._windows = real_windows
+
+    print("\nscroll (the mouse wheel is faked, nothing scrolls)")
+    wheel: list = []
+    real_gui = sys.modules.get("pyautogui")
+    sys.modules["pyautogui"] = types.SimpleNamespace(scroll=lambda n: wheel.append(("v", n)),
+                                                     hscroll=lambda n: wheel.append(("h", n)),
+                                                     moveTo=lambda *a: wheel.append(("move",) + a))
+    try:
+        notch = extras.WHEEL_NOTCH if sys.platform == "win32" else 1
+        r = extras.scroll("down")
+        check("scroll down 5 = mouse wheel backwards", r, r.startswith("Scrolled") and wheel[-1] == ("v", -5 * notch))
+        r = extras.scroll("right", 2)
+        check("scroll right = sideways wheel", r, r.startswith("Scrolled") and wheel[-1] == ("h", 2 * notch))
+        for bad_args in (("sideways",), ("down", 0), ("down", 99), ("down", 5, 5000, 10)):
+            r = extras.scroll(*bad_args)
+            check(f"scroll{bad_args} gives an error", r, r.startswith("Error"))
+    finally:
+        if real_gui is not None:
+            sys.modules["pyautogui"] = real_gui
+        else:
+            sys.modules.pop("pyautogui", None)
 
     print("\nlock_pc / sleep_pc (phone always answers No, so nothing happens)")
     phone = FakeSession(answer=False)
@@ -555,6 +654,90 @@ def icon_tests() -> None:
         shutil.rmtree(folder, ignore_errors=True)
 
 
+def more_tests() -> None:
+    """Real scroll / close_app / open_url on this PC, only on things the test opens itself."""
+    print("\n--more: scroll, close_app and open_url for real (hands off the mouse ~20 seconds)")
+    if sys.platform != "win32":
+        print("      skipped: this test is written for Windows")
+        return
+    import tkinter as tk
+    import pyautogui  # noqa: F401  (real pixels, like the app)
+    results: list[tuple[str, str, bool]] = []
+
+    # 1. scroll: our own window with a long text
+    root = tk.Tk()
+    root.title("HomeCall scroll test")
+    root.geometry("600x400+300+300")
+    root.attributes("-topmost", True)
+    text = tk.Text(root, font=("Segoe UI", 12))
+    text.insert("1.0", "\n".join(f"line {i}" for i in range(1, 301)))
+    text.pack(expand=True, fill="both")
+
+    def go() -> None:
+        root.lift()
+        root.update()
+        left, top, w, h = pointer._main_screen()
+        pic_w, pic_h = pointer.picture_size(w, h)
+        cx = text.winfo_rootx() + text.winfo_width() // 2
+        cy = text.winfo_rooty() + text.winfo_height() // 2
+        x, y = round((cx - left) * pic_w / w), round((cy - top) * pic_h / h)
+        r = extras.scroll("down", 5, x, y)
+        root.after(400, lambda: after_down(r, x, y))
+
+    def after_down(r: str, x: int, y: int) -> None:
+        moved = text.yview()[0]
+        results.append(("scroll down really moved the text", f"{r} (top now at {moved:.0%})", moved > 0))
+        extras.scroll("up", 30, x, y)
+        root.after(400, after_up)
+
+    def after_up() -> None:
+        results.append(("scroll up went back to the top", f"top at {text.yview()[0]:.0%}", text.yview()[0] == 0))
+        root.destroy()
+
+    root.after(1000, go)
+    root.mainloop()
+    for label, result, ok in results:
+        check(label, result, ok)
+
+    # 2. close_app: a fresh Calculator, never one you already had open
+    def calculators() -> list[dict]:
+        return [w for w in extras._windows() if w["title"] in ("Calculator", "Skaičiuotuvas")]
+    if calculators():
+        print("      close_app real test skipped: a Calculator is already open, and I don't close yours")
+    else:
+        basic.open_app("Calculator")
+        for _ in range(20):
+            time.sleep(0.5)
+            if calculators():
+                break
+        if not calculators():
+            check("Calculator opened for the close_app test", "it didn't open", False)
+        else:
+            actions.current_session = FakeSession(answer=True)  # the "phone" taps Yes
+            try:
+                r = extras.close_app(calculators()[0]["title"])
+            finally:
+                actions.current_session = None
+            check("close_app closes the test Calculator after a Yes", r, r.startswith("Closed") and not calculators())
+
+    # 3. open_url: example.com, then close only that tab
+    r = extras.open_url("https://example.com")
+    seen = False
+    for _ in range(20):
+        time.sleep(0.5)
+        if any(w["title"].startswith("Example Domain") for w in extras._windows()):
+            seen = True
+            break
+    check("open_url opens example.com in the browser", r, r.startswith("Opened") and seen)
+    if seen and basic._foreground_exe() in ("chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe"):
+        import ctypes
+        buf = ctypes.create_unicode_buffer(512)
+        ctypes.windll.user32.GetWindowTextW(ctypes.windll.user32.GetForegroundWindow(), buf, 512)
+        if buf.value.startswith("Example Domain"):
+            basic.press_keys("ctrl+w")  # close only the example.com tab
+            print("      (closed the example.com tab again)")
+
+
 def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="HomeCallTest_"))
     print(f"HomeCall tools test on {platform.system()} {platform.release()} (temporary folder: {tmp})")
@@ -568,6 +751,8 @@ def main() -> int:
             click_tests()
         if "--icon" in sys.argv:
             icon_tests()
+        if "--more" in sys.argv:
+            more_tests()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)  # only the temporary folder made above
     failed = [label for ok, label in RESULTS if not ok]
