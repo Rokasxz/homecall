@@ -77,6 +77,8 @@ def main() -> None:
             sh(["uv", "pip", "install", "-q", "--python", str(wt / ".venv/bin/python"), "-r", "requirements.txt"], cwd=wt)
             python = str(wt / ".venv/bin/python")
         c_code, c_out = sh([python, "check.py"], cwd=wt)
+        if c_code:  # one retry: someone restarting `pc.server` on this laptop can kill the test server mid-call
+            c_code, c_out = sh([python, "check.py"], cwd=wt)
         t_code, t_out = sh([python, "-m", "pytest", "tests", "-q", "-p", "no:cacheprovider"], cwd=wt)
     finally:
         sh(["git", "worktree", "remove", "--force", str(wt)], cwd=ROOT)
