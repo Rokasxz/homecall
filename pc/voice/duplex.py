@@ -33,6 +33,8 @@ from pc.voice import eleven
 
 router = APIRouter()
 TURN_TIMEOUT = 120         # seconds one answer may take before we give up
+QUICK_WAIT = 8            # seconds to wait before saying "on it" (ElevenLabs gives up on long silences)
+NEWS = "(PC update)"       # what the call page says when the PC has something new to say
 CONFIRM_TIMEOUT = 60       # seconds to wait for a spoken yes/no
 MAX_WRONG_CODES = 5
 LOCK_SECONDS = 60
@@ -128,6 +130,8 @@ class VoiceCall:
         text = text.strip()
         if not text:
             return ""
+        if text == NEWS:  # the call page noticed the PC has something to say
+            return self._next(quick=True, idle="")
         if self.pending:  # a tool is waiting for a spoken yes/no
             answer = yes_or_no(text)
             if answer is None:
@@ -135,23 +139,30 @@ class VoiceCall:
             done, box = self.pending
             box[0] = answer
             done.set()
-            return self._next()
+            return self._next(quick=True, idle="Okay. Still working on it, I'll tell you when it's done.")
         if self.busy:
             if is_stop(text):
                 self.stopped = True
                 return "Okay, stopping. I won't do anything else that needs your yes."
-            return self._next("About what you asked before: ")
+            return self._next("About what you asked before: ", quick=True,
+                              idle="Still working on it. I'll tell you when it's done.")
         self.stopped = False
         self.new_file = False
         self.busy = True
         threading.Thread(target=self._work, args=(text,), daemon=True).start()
-        return self._next()
+        return self._next(quick=True, idle="On it. That takes a few steps, I'll tell you when it's done.")
 
-    def _next(self, prefix: str = "") -> str:
+    @property
+    def has_news(self) -> bool:
+        return not self.out.empty()
+
+    def _next(self, prefix: str = "", quick: bool = False, idle: str = "") -> str:
+        """The next thing to say. quick: wait only a few seconds, then say `idle`; the
+        call page asks again (NEWS) as soon as the result or a Yes/No question is ready."""
         try:
-            kind, said = self.out.get(timeout=TURN_TIMEOUT)
+            kind, said = self.out.get(timeout=QUICK_WAIT if quick else TURN_TIMEOUT)
         except queue.Empty:
-            return "Sorry, that's taking too long. Check the screen, or ask me again."
+            return idle if quick else "Sorry, that's taking too long. Check the screen, or ask me again."
         if kind == "reply" and self.new_file:
             said += " The download link is on your call screen."
             self.new_file = False
@@ -273,6 +284,14 @@ def call_screen(token: str):
     from fastapi.responses import Response
     from pc import screen
     return Response(screen.capture_jpeg(960, 55), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+@router.get("/call/news")
+def call_news(token: str):
+    """Does the PC have something new to say (a result or a Yes/No question)? Polled by the call page."""
+    if not hmac.compare_digest(token.encode(), CALL.token.encode()):
+        return {"news": False}
+    return {"news": CALL.has_news}
 
 
 @router.get("/call/files")
