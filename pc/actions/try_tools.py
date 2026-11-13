@@ -4,6 +4,7 @@
     python -m pc.actions.try_tools --gui    also opens a test file and Calculator on the screen
     python -m pc.actions.try_tools --keys   also types into a small window of its own and checks every letter
                                             (hands off the keyboard and mouse for ~5 seconds!)
+    python -m pc.actions.try_tools --click  also clicks a button in a small window of its own and checks it was pressed
 
 Nothing real is deleted: the only thing removed at the end is the temporary
 test folder this script made itself, and its own copies in pc/outbox.
@@ -17,7 +18,7 @@ import zipfile
 from pathlib import Path
 
 import pc.actions as actions
-from pc.actions import basic, media, power
+from pc.actions import basic, media, pointer, power
 
 RESULTS: list[tuple[bool, str]] = []
 
@@ -256,6 +257,26 @@ def safe_tests(tmp: Path) -> None:
     check("Mac Terminal counts as a terminal", "terminal, iterm2",
           "terminal" in basic.TERMINALS and "iterm2" in basic.TERMINALS)
 
+    print("\nclick_at maths (nothing is clicked here; the real click is under --click)")
+    real_screen = pointer._main_screen
+    pointer._main_screen = lambda: (0, 0, 2880, 1800)  # pretend: a 2880x1800 laptop screen
+    try:
+        check("2880x1800 screen -> the AI sees 1280x800", str(pointer.picture_size(2880, 1800)),
+              pointer.picture_size(2880, 1800) == (1280, 800))
+        check("(100, 100) in the picture -> (225, 225) on screen", str(pointer.to_screen(100, 100)),
+              pointer.to_screen(100, 100) == (225, 225))
+        r = pointer.click_at(1500, 10)
+        check("a point outside the picture gives an error", r, r.startswith("Error") and "1280 x 800" in r)
+        r = pointer.click_at("left", 5)
+        check("x that isn't a number gives an error", r, r.startswith("Error"))
+    finally:
+        pointer._main_screen = real_screen
+    pointer._main_screen = lambda: (0, 0, 1024, 768)  # a small screen isn't scaled at all
+    try:
+        check("1024x768 screen is not scaled", str(pointer.to_screen(500, 400)), pointer.to_screen(500, 400) == (500, 400))
+    finally:
+        pointer._main_screen = real_screen
+
     print("\nlock_pc / sleep_pc (phone always answers No, so nothing happens)")
     phone = FakeSession(answer=False)
     actions.current_session = phone
@@ -342,6 +363,48 @@ def keys_tests() -> None:
         check(label, result, ok)
 
 
+def click_tests() -> None:
+    """Open a window of our own with a button, click it through click_at, check it was pressed."""
+    print("\n--click: clicking a button in the test's OWN window (hands off the mouse for ~5 seconds)")
+    try:
+        import tkinter as tk
+    except ImportError:
+        print("      skipped: tkinter is not installed with this Python")
+        return
+    import pyautogui  # noqa: F401  (makes this program use real pixels, like the app does)
+    pressed: list[str] = []
+    results: list[tuple[str, str, bool]] = []
+    root = tk.Tk()
+    root.title("HomeCall click test")
+    root.geometry("420x220+300+300")
+    root.attributes("-topmost", True)
+    button = tk.Button(root, text="HomeCall click test: click me", font=("Segoe UI", 14),
+                       command=lambda: pressed.append("yes"))
+    button.pack(expand=True, fill="both", padx=60, pady=60)
+
+    def go() -> None:
+        root.lift()
+        root.update()
+        left, top, w, h = pointer._main_screen()
+        pic_w, pic_h = pointer.picture_size(w, h)
+        # the middle of the button, as it would appear in the AI's screenshot
+        bx = button.winfo_rootx() + button.winfo_width() // 2
+        by = button.winfo_rooty() + button.winfo_height() // 2
+        x, y = round((bx - left) * pic_w / w), round((by - top) * pic_h / h)
+        r = pointer.click_at(x, y)
+        results.append(("click_at reports success", r, r.startswith("Clicked")))
+        root.after(500, done)
+
+    def done() -> None:
+        results.append(("the button really got clicked", "pressed" if pressed else "NOT pressed", bool(pressed)))
+        root.destroy()
+
+    root.after(1200, go)
+    root.mainloop()
+    for label, result, ok in results:
+        check(label, result, ok)
+
+
 def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="HomeCallTest_"))
     print(f"HomeCall tools test on {platform.system()} {platform.release()} (temporary folder: {tmp})")
@@ -351,6 +414,8 @@ def main() -> int:
             gui_tests(tmp)
         if "--keys" in sys.argv:
             keys_tests()
+        if "--click" in sys.argv:
+            click_tests()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)  # only the temporary folder made above
     failed = [label for ok, label in RESULTS if not ok]
