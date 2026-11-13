@@ -218,12 +218,25 @@ class _Door:
     locked_until = 0.0
 
 
+def pair_code() -> str:
+    """The pairing code the RUNNING app printed.
+
+    `python -m pc.server` runs the server as the module "__main__". Importing
+    pc.server from here would load a SECOND copy with its own random code, so look
+    at __main__ first."""
+    import sys
+    main = sys.modules.get("__main__")
+    if main is not None and getattr(main, "PAIR_CODE", None):
+        return str(main.PAIR_CODE)
+    from pc import server  # tests and other launchers: the normal module
+    return str(server.PAIR_CODE)
+
+
 def _check_code(code: str) -> None:
     now = time.monotonic()
     if now < _Door.locked_until:
         raise HTTPException(status_code=429, detail="Too many wrong codes. Wait a minute.")
-    from pc import server  # imported here: server imports this module
-    if not hmac.compare_digest(str(code).encode(), str(server.PAIR_CODE).encode()):
+    if not hmac.compare_digest(str(code).encode(), pair_code().encode()):
         _Door.wrong += 1
         if _Door.wrong >= MAX_WRONG_CODES:
             _Door.wrong, _Door.locked_until = 0, now + LOCK_SECONDS

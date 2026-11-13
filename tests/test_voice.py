@@ -219,3 +219,15 @@ def test_call_start_returns_signed_url(client, monkeypatch):
     r = client.post("/voice/call/start", json={"code": server.PAIR_CODE})
     assert r.status_code == 200 and r.json()["signed_url"] == "wss://example/signed"
     assert r.json()["token"] == duplex.CALL.token
+
+
+def test_pairing_code_is_the_running_apps_code(client, monkeypatch):
+    """`python -m pc.server` runs as __main__; a second import of pc.server would invent another
+    random code (bug found in the first phone test: 'Wrong pairing code' with the right code)."""
+    import sys
+    import types
+    monkeypatch.setitem(sys.modules, "__main__", types.SimpleNamespace(PAIR_CODE="777777"))
+    monkeypatch.setattr(eleven, "signed_url", lambda: "wss://example/signed")
+    assert duplex.pair_code() == "777777"
+    assert client.post("/voice/call/start", json={"code": "777777"}).status_code == 200
+    assert client.post("/voice/call/start", json={"code": server.PAIR_CODE}).status_code in (403, 200)
