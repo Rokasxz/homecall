@@ -1,0 +1,33 @@
+/* Phone UI.  (Owner: Phone app) */
+:root { --bg: #0f1115; --panel: #1a1d24; --text: #eef0f4; --muted: #9aa3b2; --accent: #3b82f6; --red: #dc2626; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, system-ui, sans-serif; }
+.screen { min-height: 100%; padding: 20px 16px; display: flex; flex-direction: column; gap: 12px; }
+.hidden { display: none !important; }
+h1 { margin: 40px 0 0; font-size: 32px; }
+p { margin: 0; color: var(--muted); }
+input { font-size: 18px; padding: 12px; border-radius: 10px; border: 1px solid #333; background: var(--panel); color: var(--text); width: 100%; }
+button { font-size: 16px; padding: 12px 16px; border-radius: 10px; border: 0; background: var(--accent); color: white; }
+button.big { font-size: 20px; padding: 16px; }
+button.secondary { background: #2a2f3a; }
+button:active { opacity: .8; }
+.error { color: #f87171; }
+
+.view { position: relative; background: #000; border-radius: 12px; overflow: hidden; }
+.view img { display: block; width: 100%; aspect-ratio: 16/10; object-fit: contain; }
+.status { position: absolute; left: 0; right: 0; bottom: 0; padding: 6px 10px; font-size: 13px; background: rgba(0,0,0,.6); color: #cde; }
+
+.confirm { background: #3b2f10; border: 1px solid #b7791f; border-radius: 10px; padding: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+.confirm p { width: 100%; color: var(--text); }
+
+.log { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; min-height: 120px; }
+.msg { padding: 8px 12px; border-radius: 12px; max-width: 85%; font-size: 15px; }
+.msg.me { align-self: flex-end; background: var(--accent); }
+.msg.pc { align-self: flex-start; background: var(--panel); }
+.msg.file a { color: #93c5fd; }
+
+.row { display: flex; gap: 8px; }
+.row input { flex: 1; }
+.controls { padding-bottom: env(safe-area-inset-bottom); }
+.mic { flex: 1; background: var(--red); font-size: 18px; padding: 18px; user-select: none; -webkit-user-select: none; touch-action: none; }
+.mic.listening { background: #16a34a; }

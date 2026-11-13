@@ -1,0 +1,116 @@
+"""The Brain.  (Owner: Brain)
+
+    brain = Brain()
+    brain.handle("find my CV and send it to me", session, screenshot_png)
+
+handle() is called in a worker thread by the server, once per thing the user
+said. It must:
+  - call tools from pc.actions (the Hands) as needed,
+  - keep the phone informed with session.status(...),
+  - finish with session.emit({"type": "reply", "text": ...}) which the phone speaks.
+
+Without an ANTHROPIC_API_KEY it runs in "echo mode" so the other areas can be
+built and tested without a key.
+"""
+import base64
+import os
+
+import pc.actions as actions
+
+MODEL = os.environ.get("HOMECALL_MODEL", "claude-opus-5-5")  # "claude-sonnet-5-5" = faster and cheaper
+EFFORT = os.environ.get("HOMECALL_EFFORT", "medium")          # low = snappier, high = more careful
+
+SYSTEM = """You are HomeCall, the voice assistant living on the user's home PC.
+The user is away from home, calling in from their phone. They see a live view of
+the PC screen and hear your replies read aloud, so keep replies short and spoken:
+one or two sentences, no lists, no markdown.
+
+Each user message comes with a fresh screenshot of the PC: look at it before acting.
+Use the tools to do what they ask (find and open files, send files to the phone,
+open apps, type). Do it; don't ask questions unless something is truly ambiguous.
+Before anything that can't be undone (deleting, sending money, closing unsaved
+work), use a tool that asks for confirmation, or say what you would do and ask.
+If a tool returns an error, say what went wrong in plain words.
+"""
+
+
+class Brain:
+    def __init__(self) -> None:
+        self.history: list[dict] = []
+        self.client = None
+        if os.environ.get("ANTHROPIC_API_KEY"):
+            import anthropic
+            self.client = anthropic.Anthropic()
+
+    # ------------------------------------------------------------------ public
+    def handle(self, text: str, session, screenshot_png: bytes | None = None) -> None:
+        actions.current_session = session
+        try:
+            if self.client is None:
+                reply = self._echo(text)
+            else:
+                reply = self._think(text, session, screenshot_png)
+        except Exception as e:  # noqa: BLE001 - never leave the phone hanging
+            reply = f"Sorry, something went wrong: {type(e).__name__}: {e}"
+        session.emit({"type": "reply", "text": reply})
+
+    # ------------------------------------------------------------ real brain
+    def _think(self, text: str, session, screenshot_png: bytes | None) -> str:
+        from anthropic import beta_tool
+
+        tools = [beta_tool(f) for f in actions.TOOLS]  # Hands' functions -> AI tools
+
+        content: list[dict] = [{"type": "text", "text": text}]
+        if screenshot_png:
+            content.insert(0, {
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/png",
+                           "data": base64.b64encode(screenshot_png).decode()},
+            })
+
+        session.status("Thinking...")
+        runner = self.client.beta.messages.tool_runner(
+            model=MODEL,
+            max_tokens=16000,
+            system=SYSTEM,
+            output_config={"effort": EFFORT},
+            tools=tools,
+            messages=self.history + [{"role": "user", "content": content}],
+            # If a safety filter declines, the API retries on a fallback model by itself.
+            betas=["server-side-fallback-2026-07-01"],
+            fallbacks="default",
+        )
+        final = None
+        for message in runner:  # one loop per round of tool calls
+            final = message
+            for block in message.content:
+                if block.type == "tool_use":
+                    session.status(f"{block.name} {_short(block.input)}")
+
+        reply = ""
+        if final is not None:
+            reply = " ".join(b.text for b in final.content if b.type == "text").strip()
+            if final.stop_reason == "refusal":
+                reply = reply or "I can't help with that one."
+        reply = reply or "Done."
+
+        # Remember the conversation as plain text (no screenshots, no tool details)
+        # so the next request stays small. Keep the last 10 exchanges.
+        self.history += [{"role": "user", "content": text}, {"role": "assistant", "content": reply}]
+        self.history = self.history[-20:]
+        return reply
+
+    # ------------------------------------------------------------- echo mode
+    def _echo(self, text: str) -> str:
+        """No API key: prove the pipeline works without an AI."""
+        low = text.lower()
+        if "files" in low or "desktop" in low:
+            return "Echo mode, no API key. Your Desktop has: " + actions.TOOLS[0]("Desktop").replace("\n", ", ")[:300]
+        if "pc" in low or "computer" in low:
+            return "Echo mode. " + [f for f in actions.TOOLS if f.__name__ == "pc_info"][0]()
+        return f"Echo mode, no API key set. You said: {text}"
+
+
+def _short(d: dict, n: int = 60) -> str:
+    s = ", ".join(f"{k}={v}" for k, v in d.items())
+    return s if len(s) <= n else s[: n - 3] + "..."

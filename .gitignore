@@ -1,0 +1,21 @@
+# Personal files: every teammate has their own, never commit them
+CLAUDE.local.md
+.claude/my-area
+.claude/settings.local.json
+.claude/worktrees/
+
+# Secrets
+.env
+.env.*
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Files the app creates while running
+pc/outbox/
+
+# Usual junk
+.DS_Store
+node_modules/

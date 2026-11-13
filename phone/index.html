@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>HomeCall</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <!-- Screen 1: pairing -->
+  <section id="connect" class="screen">
+    <h1>HomeCall</h1>
+    <p>Enter the code shown on your PC.</p>
+    <input id="code" inputmode="numeric" maxlength="6" placeholder="123456" autocomplete="one-time-code">
+    <button id="callBtn" class="big">Call my PC</button>
+    <p id="connectError" class="error"></p>
+  </section>
+
+  <!-- Screen 2: the call -->
+  <section id="call" class="screen hidden">
+    <div class="view">
+      <img id="screen" alt="Live view of the PC screen">
+      <div id="status" class="status">Connecting...</div>
+    </div>
+
+    <div id="confirmBox" class="confirm hidden">
+      <p id="confirmText"></p>
+      <button id="yesBtn">Yes</button>
+      <button id="noBtn" class="secondary">No</button>
+    </div>
+
+    <div id="log" class="log"></div>
+
+    <form id="textForm" class="row">
+      <input id="textInput" placeholder="Type instead of talking..." autocomplete="off">
+      <button type="submit">Send</button>
+    </form>
+
+    <div class="row controls">
+      <button id="hangupBtn" class="secondary">Hang up</button>
+      <button id="micBtn" class="mic">Hold to talk</button>
+    </div>
+  </section>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
