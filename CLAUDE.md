@@ -42,6 +42,12 @@ section of TASKS.md.
 - If two areas seem to overlap, or the contract below is unclear: stop and ask.
 - A guard (`.claude/hooks/stay-in-my-area.sh`) blocks edits outside the person's
   area. If it blocks you, don't look for a way around it. Tell the person.
+  GitHub checks the same thing on every Pull Request (the `area` check).
+- At the start of a session you get a "Team briefing" (branch, how far behind
+  main, contract changes, requests in TASKS.md, open PRs in this area). Act on it
+  first, e.g. pull main when it says so.
+- In a Pull Request, fill in "Assumptions I made about other areas" (names,
+  message fields, behaviour you rely on from someone else's area).
 - Explain what you changed in plain language (we are new to coding).
 - Before saying you're done, run `python -m pc.server`, try the thing in the
   browser, and say whether it worked.
@@ -132,7 +138,8 @@ with `url: /files/<token>`. The server serves it from there.
 - Commit small and often. The message says what changed and why.
 - When a piece works, open a Pull Request into `main`. A teammate takes a quick
   look (minutes), then it gets merged. Merge small pieces every 1-2 hours.
-  Nobody pushes straight to `main`.
+  Nobody pushes straight to `main`: GitHub enforces it. A PR can be merged only
+  when its checks (`check` and `area`) are green.
 - Keep `main` always runnable. If your branch breaks the app, fix that first.
 - After each merge, the lead runs the integration check (PROMPTS.md, 9b).
 - Feature freeze: [day 2, time]. After that, only bug fixes and demo polish.

@@ -62,6 +62,15 @@ def main() -> None:
     if code:
         sys.exit("Could not make a temporary copy: " + out)
     try:
+        # Test the branch COMBINED with the latest main: two pieces that each work
+        # can still break together (research: CooperBench).
+        m_code, m_out = sh(["git", "-c", "user.name=coordinator", "-c", "user.email=coordinator@localhost",
+                            "merge", "--no-edit", "-q", "origin/main"], cwd=wt)
+        conflict_files = []
+        if m_code:
+            _, names = sh(["git", "diff", "--name-only", "--diff-filter=U"], cwd=wt)
+            conflict_files = [n for n in names.splitlines() if n.strip()]
+            sh(["git", "merge", "--abort"], cwd=wt)
         python = sys.executable
         if "requirements.txt" in files:  # their branch needs other packages: fresh venv
             sh(["uv", "venv", "-q", str(wt / ".venv")], cwd=wt)
@@ -77,14 +86,22 @@ def main() -> None:
     t_last = next((l for l in reversed(t_out.splitlines()) if l.strip()), "no output")
     tests_ok = t_code in (0, 5)
     area_ok = not outside and tasks_ok
+    others = [p for p in status.gh_json("pr", "list", "--repo", REPO, "--state", "open", "--json", "number,author,files")
+              if p["number"] != a.number]
+    overlaps = sorted({f"#{p['number']} ({p['author']['login']}): `{f['path']}`" for p in others
+                       for f in p["files"] if f["path"] in files and f["path"] != "TASKS.md"})
     contract = "CLAUDE.md" in files
     reqs = "requirements.txt" in files
-    ok = c_code == 0 and tests_ok and area_ok
+    ok = c_code == 0 and tests_ok and area_ok and not conflict_files
 
     area_txt = "OK" if area_ok else "PROBLEM: " + "; ".join(filter(None, [
         ("outside your area: " + ", ".join(f"`{f}`" for f in outside)) if outside else "", tasks_note]))
     prefixes = ", ".join(f"`{p}`" for p in status.PEOPLE.get(author, ("", "", ["?"]))[2])
     rows = [
+        f"| Combines cleanly with the latest `main` | "
+        + ("OK (all checks below ran on your branch + latest main)" if not conflict_files else
+           "CONFLICT in " + ", ".join(f"`{f}`" for f in conflict_files)
+           + ": tell your AI \"bring my branch up to date with main and resolve the conflict\" (PROMPT I), then push") + " |",
         f"| Files stay in your area ({prefixes}) | {area_txt} |",
         f"| `python check.py` | {'OK' if c_code == 0 else 'FAILED'}: {c_last.strip()} |",
         f"| Tests (`pytest`) | {'OK' if tests_ok else 'FAILED'}: {'no tests yet' if t_code == 5 else t_last.strip()} |",
@@ -92,6 +109,9 @@ def main() -> None:
     ]
     if reqs:
         rows.append("| Adds or changes libraries (`requirements.txt`) | YES: needs Rokas's OK |")
+    if overlaps:
+        rows.append("| Other open PRs change the same files | " + "; ".join(overlaps)
+                    + ": merge one first, then the other must update from main |")
     verdict = ("**Safe to merge:** Rokas can press Merge." if ok and not contract and not reqs else
                "**Almost:** checks pass, but Rokas must OK the contract/library change first." if ok else
                "**Fix first:** see the FAILED/PROBLEM lines above. Paste them into your AI with "

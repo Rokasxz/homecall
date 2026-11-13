@@ -37,3 +37,25 @@ jobs:
           code=$?
           if [ "$code" -eq 5 ]; then echo "No tests yet, that's OK."; exit 0; fi
           exit $code
+
+  # On Pull Requests: every changed file must be inside the author's area
+  # (CLAUDE.md "Who owns what"). Catches hand edits, Codex and shell edits too.
+  area:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Files stay in the author's area
+        env:
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: python team/check_area.py --author "$AUTHOR" --base "$BASE" --head "$HEAD"

@@ -1,0 +1,9 @@
+# Who GitHub asks to review automatically when a file changes (last match wins).
+*              @Rokasxz
+/pc/actions/   @mantas1001
+/phone/        @Matuuunej
+/pc/voice/     @Nexurent
+/tests/        @nojuzaid-spec
+/demo/         @nojuzaid-spec
+# The contract: everyone hears about a change.
+/CLAUDE.md     @Rokasxz @mantas1001 @Matuuunej @Nexurent @nojuzaid-spec

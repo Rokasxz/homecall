@@ -2,13 +2,19 @@
 (One or two sentences, in plain words.)
 
 ## Area
-(Server & connection / Hands / Brain / Phone app / Shared)
+(Hands / Phone app / Voice / Demo, tests & safety / Brain / Server & connection / Shared)
+
+## Assumptions I made about other areas
+(Function names, message fields, file formats or behaviour from someone else's
+area that this relies on. Write "none" if none. The coordinator checks these
+against main and the contract and tells the owner if one doesn't match.)
 
 ## Checks
 - [ ] `python check.py` shows 0 failed
+- [ ] `python -m pytest tests -q` passes
 
 ## How to check it works
-(Steps a teammate can follow, e.g. "Run the app, click Start, the game begins.")
+(Steps a teammate can follow.)
 
 ## Does it touch files outside my area?
 - [ ] No
