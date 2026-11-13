@@ -5,10 +5,14 @@ phone, and (if the ElevenLabs key is in .env) points YOUR voice agent at it.
     python start.py              start everything; Ctrl+C stops everything
     python start.py --local      only on this computer (http://localhost:8000), no tunnel
 
+The first time, it asks for the team's keys (Claude for the AI, ElevenLabs for voice)
+and keeps them in .env on this computer only.
+
 Then call this computer from your own phone with the address and code it prints.
 Everyone on the team can do this with their own PC, to test and find bugs.
 (Owner: lead.)
 """
+import getpass
 import json
 import os
 import re
@@ -31,7 +35,7 @@ PORT = int(os.environ.get("HOMECALL_PORT", "8000"))
 def read_env() -> dict:
     out = {}
     if ENV.exists():
-        for line in ENV.read_text().splitlines():
+        for line in ENV.read_text(encoding="utf-8").splitlines():
             if "=" in line and not line.strip().startswith("#"):
                 k, v = line.split("=", 1)
                 out[k.strip()] = v.strip().strip('"').strip("'")
@@ -40,9 +44,9 @@ def read_env() -> dict:
 
 def set_env(key: str, value: str) -> None:
     """Add or replace KEY=value in .env (private, gitignored)."""
-    lines = ENV.read_text().splitlines() if ENV.exists() else []
+    lines = ENV.read_text(encoding="utf-8").splitlines() if ENV.exists() else []
     lines = [l for l in lines if not l.startswith(key + "=")] + [f"{key}={value}"]
-    ENV.write_text("\n".join(lines) + "\n")
+    ENV.write_text("\n".join(lines) + "\n", encoding="utf-8")
     os.environ[key] = value
 
 
@@ -53,6 +57,52 @@ def say(text: str = "") -> None:
 def port_free(port: int) -> bool:
     with socket.socket() as s:
         return s.connect_ex(("127.0.0.1", port)) != 0
+
+
+# ---------------------------------------------------------------- first run ---
+
+def claude_key_problem(key: str) -> str:
+    """'' if the Claude key works (a free check: list the models), else what's wrong."""
+    try:
+        import anthropic
+        anthropic.Anthropic(api_key=key, max_retries=0, timeout=20).models.list(limit=1)
+        return ""
+    except ImportError:
+        return ""  # can't check without the library; the app will say if it's wrong
+    except Exception as e:  # noqa: BLE001
+        name = type(e).__name__
+        if name in ("AuthenticationError", "PermissionDeniedError"):
+            return "Claude didn't accept it: copy the whole key again"
+        if name in ("APIConnectionError", "APITimeoutError"):
+            return "couldn't reach Claude: check the internet"
+        return f"{name}: {str(e)[:80]}"
+
+
+def ask_keys(local_only: bool) -> None:
+    """First run: ask for the team's keys and keep them in .env. Only in a real terminal."""
+    if not sys.stdin.isatty():
+        return
+    env = read_env()
+    mode = (env.get("HOMECALL_BRAIN") or "").lower()
+    if not env.get("ANTHROPIC_API_KEY") and mode not in ("max", "echo"):
+        say("\nFirst time here? Paste the team's Claude API key (ask Rokas privately) and press Enter.")
+        say("It stays on this computer only (in .env). Typing is hidden. Just Enter = no AI for now.")
+        for _ in range(2):
+            key = getpass.getpass("  Claude API key: ").strip()
+            if not key:
+                break
+            problem = claude_key_problem(key)
+            if not problem:
+                set_env("ANTHROPIC_API_KEY", key)
+                say("  Saved. The AI is on.")
+                break
+            say(f"  That key didn't work ({problem}). Try again, or just press Enter.")
+    if not local_only and not env.get("ELEVENLABS_API_KEY"):
+        say("\nVoice calls: paste the team's ElevenLabs key (ask Rokas privately). Just Enter = no voice.")
+        key = getpass.getpass("  ElevenLabs key: ").strip()
+        if key:
+            set_env("ELEVENLABS_API_KEY", key)
+            say("  Saved. Your own voice agent is set up in a moment.")
 
 
 # -------------------------------------------------------------------- brain ---
@@ -77,19 +127,34 @@ def brain_line(env: dict) -> str:
     if mode == "api":
         return "api (real Claude, through ANTHROPIC_API_KEY)"
     return ("echo (no AI: repeats what you say). For real AI: ask Rokas privately for the team's "
-            "Claude API key and put ANTHROPIC_API_KEY=... in .env (see README)")
+            "Claude API key, run start.py again and paste it when asked")
 
 
 # ------------------------------------------------------------------- tunnel ---
 
+def find_cloudflared() -> str | None:
+    """cloudflared on PATH, or where winget/Homebrew put it (a new install isn't on PATH until a new window)."""
+    found = shutil.which("cloudflared")
+    if found:
+        return found
+    places = [Path("/opt/homebrew/bin/cloudflared"), Path("/usr/local/bin/cloudflared")]
+    for var in ("ProgramFiles(x86)", "ProgramFiles"):
+        if os.environ.get(var):
+            places.append(Path(os.environ[var]) / "cloudflared" / "cloudflared.exe")
+    if os.environ.get("LOCALAPPDATA"):
+        places.append(Path(os.environ["LOCALAPPDATA"]) / "Microsoft" / "WinGet" / "Links" / "cloudflared.exe")
+    return next((str(p) for p in places if p.exists()), None)
+
+
 def start_tunnel() -> tuple[subprocess.Popen | None, str | None, str]:
-    exe = shutil.which("cloudflared")
+    exe = find_cloudflared()
     if not exe:
         hint = ("cloudflared is not installed, so only this computer can open the app. Install it: "
                 "Mac `brew install cloudflared`, Windows `winget install Cloudflare.cloudflared`.")
         return None, None, hint
     proc = subprocess.Popen([exe, "tunnel", "--no-autoupdate", "--url", f"http://localhost:{PORT}"],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                            text=True, encoding="utf-8", errors="replace")
     found = {"url": None, "ready": False, "blocked": False}
 
     def read() -> None:
@@ -169,9 +234,12 @@ LOG = ROOT / "homecall.log"  # the server's log (gitignored: it holds the pairin
 # ------------------------------------------------------------------- server ---
 
 def start_server() -> tuple[subprocess.Popen, str | None]:
-    env = dict(os.environ, PYTHONUNBUFFERED="1", HOMECALL_LOG_LEVEL="info")  # each visit -> homecall.log
+    # UTF-8 both ways: Windows' own encoding can't print e.g. "ž" and the server would crash.
+    env = dict(os.environ, PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8",
+               HOMECALL_LOG_LEVEL="info")  # each visit -> homecall.log
     proc = subprocess.Popen([sys.executable, "-m", "pc.server"], cwd=ROOT, env=env,
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, encoding="utf-8", errors="replace")
     log = open(LOG, "w", encoding="utf-8", buffering=1)  # every phone visit, for finding bugs
     code = None
     t0 = time.time()
@@ -202,6 +270,8 @@ def main() -> None:
         say(f"\nPort {PORT} is busy: HomeCall (or something else) is already running. Close it first,")
         say("or set HOMECALL_PORT=8001 in .env.")
         sys.exit(1)
+    ask_keys(local_only)
+    env = read_env()
 
     tunnel, url, tunnel_note = (None, None, "local only (--local)") if local_only else start_tunnel()
     voice = setup_voice(url) if url else "off (needs the tunnel)"
