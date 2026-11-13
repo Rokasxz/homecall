@@ -12,3 +12,7 @@ Rules for this folder:
   point `pc.actions.basic.ALLOWED_ROOTS` at it (see check.py for the pattern).
 - One file per area: `test_hands.py`, `test_contract.py` (fake phone call over
   the websocket), `test_voice.py`, ...
+
+Automatic runs: `tests/ci/run-tests.yml` is a ready-made GitHub check that runs
+these tests on every Pull Request and every merge into main. It switches on once
+the lead copies it to `.github/workflows/tests.yml` (a shared folder).

@@ -1,0 +1,35 @@
+# GitHub check: runs our tests automatically on every Pull Request and every
+# merge into main. Nobody has to type anything; the result shows on the PR
+# as a green tick or a red cross.
+#
+# TO TURN IT ON (lead only, .github/ is a shared folder):
+#   copy this file to  .github/workflows/tests.yml  and merge it.
+#
+# Owner of the tests: Demo, tests & safety. Owner of .github/: lead.
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install the project's libraries
+        run: pip install -r requirements.txt
+
+      - name: Run the tests
+        # Screen and keyboard are faked in the tests, so no display is needed.
+        # No API key here: the Brain runs in echo mode.
+        # Exit code 5 = "no tests found yet": don't fail for that.
+        run: python -m pytest tests/ -v || [ $? -eq 5 ]
