@@ -92,7 +92,11 @@ Adding a message type = add a row here first.
   once per `say`. It must end with `session.emit({"type": "reply", "text": ...})`.
 - It gets its tools from `pc.actions.TOOLS` and must set
   `pc.actions.current_session = session` before running them.
-- Without `ANTHROPIC_API_KEY` it answers in "echo mode" so others can test.
+- Three modes, chosen by `HOMECALL_BRAIN` in `.env`: `api` (Claude API, needs
+  `ANTHROPIC_API_KEY`), `max` (Claude through Claude Code's login on the PC, no API
+  credits; `pc/brain/max_backend.py`, needs `pip install claude-agent-sdk` and a
+  logged-in Claude Code), `echo` (no AI, so others can test). Default: `api` when a
+  key is set, else `echo`.
 - Settings via env vars: `HOMECALL_MODEL` (default `claude-opus-5-5`;
   `claude-sonnet-5-5` is faster), `HOMECALL_EFFORT` (low/medium/high).
 
