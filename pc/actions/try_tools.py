@@ -1,0 +1,245 @@
+"""Try every Hands tool on this PC and print what happens.  (Owner: Hands)
+
+    python -m pc.actions.try_tools          safe tests: a temporary folder only, your real files are never touched
+    python -m pc.actions.try_tools --gui    also opens a test file and Calculator on the screen
+    python -m pc.actions.try_tools --keys   also types into a small window of its own and checks every letter
+                                            (hands off the keyboard and mouse for ~5 seconds!)
+
+Nothing real is deleted: the only thing removed at the end is the temporary
+test folder this script made itself, and its own copies in pc/outbox.
+"""
+import platform
+import shutil
+import sys
+import tempfile
+import time
+import zipfile
+from pathlib import Path
+
+import pc.actions as actions
+from pc.actions import basic
+
+RESULTS: list[tuple[bool, str]] = []
+
+
+class FakeSession:
+    """Pretends to be the phone: prints what the tools send and answers Yes/No questions."""
+
+    def __init__(self, answer: bool):
+        self.answer, self.sent = answer, []
+
+    def emit(self, event: dict) -> None:
+        self.sent.append(event)
+        print(f"      phone <- {event}")
+
+    def status(self, text: str) -> None:
+        self.emit({"type": "status", "text": text})
+
+    def confirm(self, question: str, timeout: float = 60) -> bool:
+        print(f"      phone asks: {question!r} -> taps {'Yes' if self.answer else 'No'}")
+        return self.answer
+
+
+def check(label: str, result: str, ok: bool) -> None:
+    RESULTS.append((ok, label))
+    shown = result if len(result) < 300 else result[:300] + " ..."
+    print(f"  {'PASS' if ok else 'FAIL'}  {label}")
+    print("      -> " + shown.replace("\n", "\n         "))
+
+
+def make_docx(path: Path, paragraphs: list[str]) -> None:
+    """A tiny but real Word file (a .docx is a zip with XML inside)."""
+    body = "".join(f"<w:p><w:r><w:t>{p}</w:t></w:r></w:p>" for p in paragraphs)
+    xml = ('<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w='
+           '"http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+           f"<w:body>{body}</w:body></w:document>")
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("word/document.xml", xml)
+
+
+def safe_tests(tmp: Path) -> None:
+    print("\nReal folders the AI may use on this PC:")
+    for name, path in basic.SPECIAL_FOLDERS.items():
+        print(f"      {name:<10} {path}  {'(exists)' if path.exists() else '(MISSING)'}")
+
+    r = basic.pc_info()
+    check("pc_info names the OS", r, platform.system() in r)
+
+    # From here on the tools only see the temporary folder.
+    saved_roots = basic.ALLOWED_ROOTS
+    basic.ALLOWED_ROOTS = [tmp]
+    try:
+        cv = tmp / "Mantas CV.txt"
+        cv.write_text("Mantas, Kaunas. Skills: Python, šachmatai, žvejyba.", encoding="utf-8")
+        (tmp / "old draft.txt").write_text("delete me later", encoding="utf-8")
+        (tmp / "senas.txt").write_bytes("Ačiū, labas".encode("cp1257"))  # an old-style Windows file
+        (tmp / "big.md").write_text("x" * 10_000, encoding="utf-8")
+        (tmp / "photo.png").write_bytes(b"\x89PNG fake")
+        make_docx(tmp / "Cover letter.docx", ["Dear team,", "I love Python and ąžuolai."])
+        (tmp / "Projects" / "deep").mkdir(parents=True)
+        (tmp / "Projects" / "deep" / "plan.txt").write_text("the plan", encoding="utf-8")
+        (tmp / "~$lockfile.docx").write_text("office lock file", encoding="utf-8")
+
+        print("\nlist_files")
+        r = basic.list_files(str(tmp))
+        check("lists files and folders", r, "Mantas CV.txt" in r and "[folder] Projects" in r)
+        check("hides Office lock files (~$...)", r, "~$" not in r)
+        r = basic.list_files(tmp.name)
+        check("accepts the folder's short name", r, "Mantas CV.txt" in r)
+        r = basic.list_files("C:\\Windows" if sys.platform == "win32" else "/etc")
+        check("refuses a folder outside the allowed ones", r, r.startswith("Error"))
+
+        print("\nfind_file")
+        r = basic.find_file("cv")
+        check("finds 'cv'", r, "Mantas CV.txt" in r)
+        r = basic.find_file("PLAN")
+        check("finds a file 2 folders deep, any letter case", r, "plan.txt" in r)
+        r = basic.find_file("zzz-nothing")
+        check("says when nothing is found", r, r.startswith("No file"))
+
+        print("\nread_file_text")
+        r = basic.read_file_text(str(cv))
+        check("reads a .txt with Lithuanian letters", r, "šachmatai, žvejyba" in r)
+        r = basic.read_file_text(str(tmp / "senas.txt"))
+        check("reads an old Windows (cp1257) file", r, "Ačiū" in r)
+        r = basic.read_file_text(str(tmp / "Cover letter.docx"))
+        check("reads a Word .docx", r, "Dear team," in r and "ąžuolai" in r)
+        r = basic.read_file_text(str(tmp / "big.md"))
+        check("cuts long files at 3000 characters", r, "first 3000 of 10000" in r and len(r) < 3100)
+        r = basic.read_file_text(str(tmp / "photo.png"))
+        check("politely refuses a picture", r, r.startswith("Error"))
+        r = basic.read_file_text("C:\\Windows\\win.ini" if sys.platform == "win32" else "/etc/hosts")
+        check("refuses a file outside the allowed folders", r, r.startswith("Error"))
+
+        print("\nsend_file_to_phone")
+        phone = FakeSession(answer=False)
+        actions.current_session = phone
+        r = basic.send_file_to_phone(str(cv))
+        sent = [e for e in phone.sent if e.get("type") == "file"]
+        token = sent[0]["url"].rsplit("/", 1)[-1] if sent else ""
+        copies = list(basic.OUTBOX.glob(f"{token}__*")) if token else []
+        check("sends a 'file' message and puts a copy in pc/outbox", r, bool(sent) and bool(copies))
+        for c in copies:
+            c.unlink()  # our own test copy
+        r = basic.send_file_to_phone(str(tmp / "Projects"))
+        check("refuses to send a folder", r, r.startswith("Error"))
+
+        print("\ndelete_file (always answers No, nothing is deleted)")
+        draft = tmp / "old draft.txt"
+        r = basic.delete_file(str(draft))
+        check("asks first; 'No' keeps the file", r, r.startswith("Cancelled") and draft.exists())
+        actions.current_session = None
+        r = basic.delete_file(str(draft))
+        check("without a phone it refuses", r, r.startswith("Cancelled") and draft.exists())
+        r = basic.delete_file("C:\\Windows\\win.ini" if sys.platform == "win32" else "/etc/hosts")
+        check("refuses a file outside the allowed folders", r, r.startswith("Error"))
+    finally:
+        basic.ALLOWED_ROOTS = saved_roots
+        actions.current_session = None
+
+    print("\npress_keys (only wrong names, so nothing is pressed)")
+    r = basic.press_keys("ctrl+nosuchkey")
+    check("rejects an unknown key before pressing anything", r, r.startswith("Error") and "nosuchkey" in r)
+    check("'cmd' means the Windows key on Windows", basic._key_name("cmd"),
+          basic._key_name("cmd") == ("win" if sys.platform == "win32" else "command" if sys.platform == "darwin" else "win"))
+
+    print("\nopen_app (only looks the apps up, opens nothing)")
+    if sys.platform == "win32":
+        apps = basic._windows_apps()
+        check("reads the Start menu app list", f"{len(apps)} apps", len(apps) > 5)
+        for said in ("Calculator", "Notepad"):
+            found = basic._match_app(said, apps)
+            check(f"'{said}' is found", str(found), found is not None)
+        found = basic._match_app("Spotify", apps)
+        print(f"      (Spotify -> {found or 'not installed'})")
+    r = basic.open_app("NoSuchAppXyz123")
+    check("an unknown app gives an error, not a fake 'done'", r, r.startswith("Error"))
+
+
+def gui_tests(tmp: Path) -> None:
+    print("\n--gui: things you should SEE on the screen")
+    note = tmp / "HomeCall test note.txt"
+    note.write_text("If you can read this, open_file works.", encoding="utf-8")
+    saved_roots = basic.ALLOWED_ROOTS
+    basic.ALLOWED_ROOTS = [tmp]
+    try:
+        r = basic.open_file(str(note))
+        check("open_file opens the test note", r, r.startswith("Opened"))
+    finally:
+        basic.ALLOWED_ROOTS = saved_roots
+    time.sleep(1.5)
+    r = basic.open_app("Calculator")
+    check("open_app opens Calculator", r, r.startswith("Opened"))
+    time.sleep(1.5)
+
+
+TYPED = "Labas iš HomeCall! ąčęėįšųūž ĄČĘĖĮŠŲŪŽ ABC xyz 123"
+
+
+def keys_tests() -> None:
+    """Type into a plain window this script makes itself, then check every letter.
+
+    Not Notepad: Windows 11 Notepad has autocorrect, which silently changes
+    what was typed (we saw 'HomeCall' become 'homeCall').
+    """
+    print("\n--keys: typing into the test's OWN window (hands off the keyboard and mouse for ~5 seconds)")
+    try:
+        import tkinter as tk
+    except ImportError:
+        print("      skipped: tkinter is not installed with this Python")
+        return
+    results: list[tuple[str, str, bool]] = []
+    root = tk.Tk()
+    root.title("HomeCall typing test")
+    root.geometry("780x140+200+200")
+    box = tk.Text(root, font=("Segoe UI", 14))
+    box.pack(fill="both", expand=True)
+    root.attributes("-topmost", True)
+    root.lift()
+    root.focus_force()
+    box.focus_set()
+
+    def go() -> None:
+        if root.focus_get() is not box:
+            results.append(("the test window is in front", "another window took the focus; typed NOTHING", False))
+            root.destroy()
+            return
+        r = basic.type_text(TYPED)
+        results.append(("type_text reports success", r, r.startswith("Typed")))
+        r = basic.press_keys("shift+home")
+        results.append(("press_keys reports success", r, r.startswith("Pressed")))
+        root.after(600, done)
+
+    def done() -> None:
+        got = box.get("1.0", "end").rstrip("\n")
+        results.append(("every letter arrived exactly right", f"typed: {TYPED!r}\n   got: {got!r}", got == TYPED))
+        selected = bool(box.tag_ranges("sel"))
+        results.append(("shift+home really selected the line", "selected" if selected else "nothing selected", selected))
+        root.destroy()
+
+    root.after(1200, go)
+    root.mainloop()
+    for label, result, ok in results:
+        check(label, result, ok)
+
+
+def main() -> int:
+    tmp = Path(tempfile.mkdtemp(prefix="HomeCallTest_"))
+    print(f"HomeCall tools test on {platform.system()} {platform.release()} (temporary folder: {tmp})")
+    try:
+        safe_tests(tmp)
+        if "--gui" in sys.argv:
+            gui_tests(tmp)
+        if "--keys" in sys.argv:
+            keys_tests()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)  # only the temporary folder made above
+    failed = [label for ok, label in RESULTS if not ok]
+    print(f"\n{len(RESULTS) - len(failed)} passed, {len(failed)} failed.")
+    for label in failed:
+        print(f"  FAILED: {label}")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
