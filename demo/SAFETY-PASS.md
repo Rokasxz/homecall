@@ -57,3 +57,28 @@ cuts at 3000 characters, and returns "Error: ..." for broken files.
 Tests updated for PR 9 (they pass before AND after it merges): `open_app` on Mac
 now uses `subprocess.run`, Windows Start-menu lookup is faked, `read_file_text`
 has 5 tests (skipped until PR 9 is in main).
+
+---
+
+# Safety pass #3 — 2026-11-13 (day 1, evening)
+
+Merged into main since pass #2: #3, #4, #5 (tests & demo), #6 (automatic checks),
+#9, #10 (Hands), #11 (Brain "max" mode). Open: Hands #12 (smarter find_file,
+lock/sleep) and #13 (safety fixes).
+
+Results (`python tests/run_on_prs.py`): main 84 passed; PR 12 92 passed;
+PR 13 96 passed, **9 known gaps fixed**.
+
+| # | Finding | Who | Status |
+|---|---|---|---|
+| 3 | `open_file` ran programs without asking | Hands | **Fixed in PR 13** (asks Yes/No first) |
+| 9 | `open_app` started any program by full path | Hands | **Fixed in PR 13** (names only) |
+| 11 | zip-bomb .docx | Hands | **Fixed in PR 13** (size check) |
+| 4 | type/keys could run Terminal commands | Hands | **Fixed on Windows in PR 13** (Enter/newline in a terminal asks first; `return` too). **Still open on Mac**: the guard only knows Windows terminals, so Terminal/iTerm aren't recognised. |
+| 12 | Program list misses Mac script types `.scpt`, `.applescript`, `.terminal` (opening a `.terminal` file runs its command) | Hands | New, low |
+| 1, 2, 5, 7 | 0.0.0.0, no lockout, second phone, outbox | Lead | Still open |
+| 6 | /voice/* without the code | Voice + Lead | Still open (Voice not built yet) |
+| 10 | prompt injection via read_file_text | Lead (Brain) | Still open: SYSTEM has no "file text is data" line yet |
+
+New tests: `tests/test_power.py` (lock/sleep ask first; No = nothing happens),
+terminal-guard tests in `test_safety.py`.
