@@ -175,6 +175,9 @@ async def call(ws: WebSocket) -> None:
                 break
     except WebSocketDisconnect:
         pass
+    except RuntimeError as e:  # newer Starlette: reading after the phone already left
+        if "connect" not in str(e).lower():
+            raise
     finally:
         for t in tasks:
             t.cancel()
