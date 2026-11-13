@@ -115,15 +115,25 @@ Adding a message type = add a row here first.
 Hands copy the file to `pc/outbox/<token>__<name>` and emit a `file` message
 with `url: /files/<token>`. The server serves it from there.
 
-### 6. Voice: `pc/voice/` (two web endpoints, used by the phone)
+### 6. Voice: `pc/voice/` (owner: Nojus)
+Simple voice (the phone app may use it instead of the browser's own speech):
 - `POST /voice/transcribe`, form field `audio` = the recording (webm/ogg/m4a/wav)
   -> `{"text": "find my cv"}`. The phone then sends that text as a normal `say`.
-- `GET /voice/speak?text=...` -> MP3 audio. The phone plays it for a `reply`
-  instead of the browser's built-in voice.
-- Both live in `pc/voice/routes.py` and call `engine.transcribe(audio_bytes, mime_type) -> str`
-  and `engine.speak(text) -> bytes` in `pc/voice/engine.py`. Until implemented they
-  return 501 and the phone falls back to the browser's own voice. Provider keys
-  (e.g. `OPENAI_API_KEY`) go in `.env`.
+- `GET /voice/speak?text=...` -> MP3 audio, played for a `reply`.
+- Both need the pairing code (header `X-HomeCall-Code`, or `?code=`), because they
+  spend credits. No provider key = 501 (the phone falls back to the browser's voice);
+  provider error = 502.
+
+Duplex voice call (ElevenLabs; listens while talking, can be interrupted; the Brain
+and the Hands are unchanged):
+- `GET /voice/call` -> the private call page.
+- `POST /voice/call/start {"code": "123456"}` -> `{"signed_url": ..., "token": ...}`
+  (5 wrong codes = 60 s lock).
+- `GET /voice/call/files?token=...` -> files sent during that call.
+- `POST /voice/llm/<secret>/chat/completions` -> OpenAI-style streaming endpoint that
+  ElevenLabs calls; it forwards to the team Brain. `<secret>` = `HOMECALL_AGENT_SECRET`.
+- Keys in `.env` (never committed): `ELEVENLABS_API_KEY`, `ELEVENLABS_AGENT_ID`,
+  `HOMECALL_AGENT_SECRET`. The demo uses Nojus's ElevenLabs account.
 
 ### 7. Tests and demo: `tests/`, `demo/`
 - `tests/` holds pytest tests that READ the other areas and check them against

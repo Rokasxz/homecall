@@ -45,6 +45,8 @@ Doing things in apps (Discord, Spotify, a browser, ...):
   before the next step. Never click based on an old picture.
 - Before sending a message, posting or emailing, call ask_user with exactly who it
   goes to and what it says ("Send \"<text>\" to <name> on Discord?"). Only send after Yes.
+  NEVER ask "should I send it?" in your reply: the Yes/No must come from ask_user.
+- Never ask the user to describe the screen: call look_at_screen and see it yourself.
 - If you can't find the right person, chat or button, stop and tell the user what
   you see instead of guessing.
 

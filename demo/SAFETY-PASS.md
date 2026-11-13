@@ -148,3 +148,21 @@ roots and outside paths.
 |---|---|---|---|
 | 18 | **send_folder_to_phone follows symlinks inside the folder**: a shortcut in `Desktop/Project` pointing at e.g. `~/.ssh/id_rsa` is zipped and sent to the phone, bypassing the 4-folder rule. Confirmed by test. | Hands | **New, high** |
 | 6 | /voice/* without the code | Voice | Fixed in Voice PR #39 (draft) |
+
+---
+
+# Safety pass #7 — after Voice #39, Hands #41/#45/#46 (2026-11-13, afternoon)
+
+- **main was red**: `test_delete_asks_first_and_yes_deletes` failed because
+  delete_file now moves files to the Recycle Bin / Trash (good, safer) and refuses
+  if that fails. Tests now fake the Trash (they never touch the real one) and check:
+  Yes → file is in the trash, not gone; Trash fails → nothing deleted.
+- New tests `tests/test_search_clipboard.py`: search only inside the 4 folders,
+  recent files, clipboard read asks first (could be a password), No = nothing read.
+
+| # | Finding | Who | Status |
+|---|---|---|---|
+| 19 | **search_in_files follows symlinked files**: a shortcut in Desktop pointing at a file outside the 4 folders is read and its text returned (same as #18). Confirmed by test. | Hands | New, high |
+| 18 | send_folder_to_phone follows symlinks | Hands | Still open |
+| 6 | /voice/* without the pairing code | Voice | **Fixed in #39** (merged) |
+| — | Mac: delete via Finder needs Automation permission for the terminal on first use (macOS asks) | Demo | Note for the demo laptop setup |

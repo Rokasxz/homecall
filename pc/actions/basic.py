@@ -250,19 +250,101 @@ def _read_docx(p: Path) -> str:
     return "\n".join(paragraphs)
 
 
-def _read_pdf(p: Path) -> str:
-    import pypdf  # optional: only works if the lead adds pypdf to requirements.txt
+def _read_pdf(p: Path, max_chars: int = MAX_CHARS, max_pages: int = 10) -> str:
+    import logging
+
+    import pypdf  # approved by the lead (#40)
+    logging.getLogger("pypdf").setLevel(logging.ERROR)  # broken PDFs: we return an error, no log noise
     reader = pypdf.PdfReader(str(p))
     text = []
-    for page in reader.pages[:10]:
+    for page in reader.pages[:max_pages]:
         text.append(page.extract_text() or "")
-        if sum(len(t) for t in text) > MAX_CHARS:
+        if sum(len(t) for t in text) > max_chars:
             break
     return "\n".join(text)
 
 
+def _zip_xml(z: zipfile.ZipFile, name: str) -> ElementTree.Element:
+    """One XML part of an Office file, refusing giant ones (a "zip bomb" could fill the memory)."""
+    if z.getinfo(name).file_size > MAX_DOCX_XML:
+        raise ValueError("the document is too big to read")
+    return ElementTree.fromstring(z.read(name))
+
+
+def _part_number(name: str) -> int:
+    digits = "".join(ch for ch in Path(name).stem if ch.isdigit())
+    return int(digits) if digits else 0
+
+
+def _read_pptx(p: Path) -> str:
+    """The text of each slide, in order: 'Slide 1: ...'."""
+    a = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+    with zipfile.ZipFile(p) as z:
+        slides = sorted((n for n in z.namelist() if n.startswith("ppt/slides/slide") and n.endswith(".xml")),
+                        key=_part_number)
+        out = []
+        for i, name in enumerate(slides[:100], 1):
+            root = _zip_xml(z, name)
+            lines = []
+            for para in root.iter(f"{a}p"):
+                line = "".join(t.text or "" for t in para.iter(f"{a}t")).strip()
+                if line:
+                    lines.append(line)
+            out.append(f"Slide {i}: " + " / ".join(lines))
+    return "\n".join(out)
+
+
+def _read_xlsx(p: Path) -> str:
+    """Each sheet's rows, cells separated by tabs (first 200 rows per sheet)."""
+    s = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+    with zipfile.ZipFile(p) as z:
+        names = z.namelist()
+        shared = []
+        if "xl/sharedStrings.xml" in names:
+            for si in _zip_xml(z, "xl/sharedStrings.xml").iter(f"{s}si"):
+                shared.append("".join(t.text or "" for t in si.iter(f"{s}t")))
+        sheets = sorted((n for n in names if n.startswith("xl/worksheets/sheet") and n.endswith(".xml")),
+                        key=_part_number)
+        out = []
+        for i, name in enumerate(sheets[:10], 1):
+            rows = []
+            for row in list(_zip_xml(z, name).iter(f"{s}row"))[:200]:
+                cells = []
+                for c in row.iter(f"{s}c"):
+                    v = c.find(f"{s}v")
+                    if c.get("t") == "s" and v is not None and v.text and v.text.isdigit() and int(v.text) < len(shared):
+                        cells.append(shared[int(v.text)])
+                    elif c.get("t") == "inlineStr":
+                        cells.append("".join(t.text or "" for t in c.iter(f"{s}t")))
+                    else:
+                        cells.append(v.text if v is not None and v.text else "")
+                if any(cells):
+                    rows.append("\t".join(cells))
+            out.append(f"Sheet {i}:\n" + "\n".join(rows))
+    return "\n".join(out)
+
+
+READABLE = ".txt, .md, .csv, .docx, .pdf, .pptx and .xlsx"
+
+
+def _extract_text(p: Path, max_chars: int = MAX_CHARS, max_pdf_pages: int = 10) -> str | None:
+    """All the text in a document we know how to read, or None if we can't read this type."""
+    ext = p.suffix.lower()
+    if ext in TEXT_TYPES:
+        return _read_plain(p)
+    if ext == ".docx":
+        return _read_docx(p)
+    if ext == ".pdf":
+        return _read_pdf(p, max_chars, max_pdf_pages)
+    if ext == ".pptx":
+        return _read_pptx(p)
+    if ext == ".xlsx":
+        return _read_xlsx(p)
+    return None
+
+
 def read_file_text(path: str) -> str:
-    """Read the text inside a document (.txt, .md, .csv, .docx, ...) and return the first 3000 characters.
+    """Read the text inside a document (.txt, .md, .csv, .docx, .pdf, PowerPoint .pptx, Excel .xlsx) and return the first 3000 characters.
 
     Args:
         path: Full path of the file, e.g. from find_file.
@@ -274,17 +356,11 @@ def read_file_text(path: str) -> str:
         _session().status(f"Reading {p.name}")
     ext = p.suffix.lower()
     try:
-        if ext in TEXT_TYPES:
-            text = _read_plain(p)
-        elif ext == ".docx":
-            text = _read_docx(p)
-        elif ext == ".pdf":
-            try:
-                text = _read_pdf(p)
-            except ImportError:
-                return f"Error: I can't read PDF files yet. I can open {p.name} on the screen or send it to the phone."
-        else:
-            return f"Error: I can't read {ext or 'this kind of'} files. I can read .txt, .md, .csv and .docx."
+        text = _extract_text(p)
+        if text is None:
+            return f"Error: I can't read {ext or 'this kind of'} files. I can read {READABLE}."
+    except ImportError:
+        return f"Error: I can't read PDF files yet. I can open {p.name} on the screen or send it to the phone."
     except Exception as e:  # noqa: BLE001
         return f"Error reading {p.name}: {e}"
     text = text.strip()
@@ -295,26 +371,95 @@ def read_file_text(path: str) -> str:
     return f"{p.name}:\n{text}"
 
 
-def send_file_to_phone(path: str) -> str:
-    """Send a file from the PC to the phone, so the user can download it there.
+PHOTO_TYPES = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
+SHRINK_ABOVE = 1_500_000   # photos bigger than ~1.5 MB get a smaller copy for mobile data
+SMALL_LONG_SIDE = 2000     # pixels: still sharp on any phone screen
+
+
+def _small_copy(p: Path, target: Path) -> Path | None:
+    """A phone-sized JPEG copy of a big photo (turned the right way up, without location data), or None."""
+    try:
+        from PIL import Image, ImageOps
+        with Image.open(p) as img:
+            img = ImageOps.exif_transpose(img)  # phones store "rotate me" in the photo data
+            img.thumbnail((SMALL_LONG_SIDE, SMALL_LONG_SIDE))
+            if img.mode not in ("RGB", "L"):
+                img = img.convert("RGB")
+            img.save(target, "JPEG", quality=82, optimize=True)  # saved without EXIF: no GPS location
+        if target.stat().st_size >= p.stat().st_size:  # not smaller after all: send the original
+            target.unlink()
+            return None
+        return target
+    except Exception:  # noqa: BLE001  (not really a picture, or Pillow can't read it)
+        target.unlink(missing_ok=True)
+        return None
+
+
+def _mb(n: int) -> str:
+    return f"{n / 1_000_000:.1f} MB" if n >= 100_000 else f"{max(1, n // 1000)} KB"
+
+
+def send_file_to_phone(path: str, full_size: bool = False) -> str:
+    """Send a file from the PC to the phone, so the user can download it there. Big photos are sent as a smaller copy (fast on mobile data) unless full_size is True.
 
     Args:
         path: Full path of the file, e.g. from find_file.
+        full_size: True to send a big photo as the original file. Default False (a smaller copy).
     """
     p = _resolve(path)
     if p is None or not p.is_file():
         return f"Error: '{path}' is not a file I can send."
-    if p.stat().st_size > 200 * 1024 * 1024:
+    size = p.stat().st_size
+    if size > 200 * 1024 * 1024:
         return "Error: file is bigger than 200 MB."
     token = secrets.token_urlsafe(12)
+    if not full_size and p.suffix.lower() in PHOTO_TYPES and size > SHRINK_ABOVE:
+        if _session():
+            _session().status(f"Making a smaller copy of {p.name}")
+        name = f"{p.stem} (small).jpg"
+        small = _small_copy(p, OUTBOX / f"{token}__{name}")
+        if small is not None:
+            if _session():
+                _session().emit({"type": "file", "name": name, "url": f"/files/{token}"})
+            return (f"Sent a smaller copy of {p.name} to the phone ({_mb(small.stat().st_size)} instead of "
+                    f"{_mb(size)}). Say 'full size' if the user wants the original.")
     shutil.copy2(p, OUTBOX / f"{token}__{p.name}")
     if _session():
         _session().emit({"type": "file", "name": p.name, "url": f"/files/{token}"})
     return f"Sent {p.name} to the phone."
 
 
+def _to_recycle_bin(p: Path) -> bool:
+    """Move a file to the Windows Recycle Bin / Mac Trash / Linux trash. True if it worked."""
+    try:
+        if IS_WIN:
+            import ctypes
+            from ctypes import wintypes
+
+            class SHFILEOPSTRUCTW(ctypes.Structure):
+                _fields_ = [("hwnd", wintypes.HWND), ("wFunc", wintypes.UINT), ("pFrom", wintypes.LPCWSTR),
+                            ("pTo", wintypes.LPCWSTR), ("fFlags", ctypes.c_ushort), ("fAnyOperationsAborted", wintypes.BOOL),
+                            ("hNameMappings", ctypes.c_void_p), ("lpszProgressTitle", wintypes.LPCWSTR)]
+            FO_DELETE, FOF_SILENT, FOF_NOCONFIRMATION, FOF_ALLOWUNDO, FOF_NOERRORUI = 3, 0x4, 0x10, 0x40, 0x400
+            op = SHFILEOPSTRUCTW(None, FO_DELETE, str(p) + "\0", None,
+                                 FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI, False, None, None)
+            return ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op)) == 0 and not op.fAnyOperationsAborted \
+                and not p.exists()
+        if IS_MAC:
+            posix = str(p).replace("\\", "\\\\").replace('"', '\\"')
+            subprocess.run(["osascript", "-e", f'tell application "Finder" to delete POSIX file "{posix}"'],
+                           capture_output=True, timeout=15)
+            return not p.exists()
+        if shutil.which("gio"):
+            subprocess.run(["gio", "trash", str(p)], capture_output=True, timeout=15)
+            return not p.exists()
+    except Exception:  # noqa: BLE001
+        return False
+    return False
+
+
 def delete_file(path: str) -> str:
-    """Delete a file. Always asks the user to confirm on the phone first.
+    """Delete a file: it goes to the Recycle Bin, so it can be restored from there. Always asks the user to confirm on the phone first.
 
     Args:
         path: Full path of the file to delete.
@@ -322,9 +467,12 @@ def delete_file(path: str) -> str:
     p = _resolve(path)
     if p is None or not p.is_file():
         return f"Error: '{path}' is not a file I can delete."
-    if not _session() or not _session().confirm(f"Delete {p.name}? This cannot be undone."):
+    if not _session() or not _session().confirm(f"Delete {p.name}? It goes to the Recycle Bin."):
         return "Cancelled: the user did not confirm."
-    p.unlink()
+    if not _to_recycle_bin(p):
+        if IS_WIN or IS_MAC:
+            return f"Error: couldn't move {p.name} to the Recycle Bin, so I didn't delete it."
+        p.unlink()  # a Linux PC without a trash (e.g. the test machine): delete as before
     return f"Deleted {p.name}"
 
 
