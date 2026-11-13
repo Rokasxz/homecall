@@ -250,19 +250,101 @@ def _read_docx(p: Path) -> str:
     return "\n".join(paragraphs)
 
 
-def _read_pdf(p: Path) -> str:
-    import pypdf  # optional: only works if the lead adds pypdf to requirements.txt
+def _read_pdf(p: Path, max_chars: int = MAX_CHARS, max_pages: int = 10) -> str:
+    import logging
+
+    import pypdf  # approved by the lead (#40)
+    logging.getLogger("pypdf").setLevel(logging.ERROR)  # broken PDFs: we return an error, no log noise
     reader = pypdf.PdfReader(str(p))
     text = []
-    for page in reader.pages[:10]:
+    for page in reader.pages[:max_pages]:
         text.append(page.extract_text() or "")
-        if sum(len(t) for t in text) > MAX_CHARS:
+        if sum(len(t) for t in text) > max_chars:
             break
     return "\n".join(text)
 
 
+def _zip_xml(z: zipfile.ZipFile, name: str) -> ElementTree.Element:
+    """One XML part of an Office file, refusing giant ones (a "zip bomb" could fill the memory)."""
+    if z.getinfo(name).file_size > MAX_DOCX_XML:
+        raise ValueError("the document is too big to read")
+    return ElementTree.fromstring(z.read(name))
+
+
+def _part_number(name: str) -> int:
+    digits = "".join(ch for ch in Path(name).stem if ch.isdigit())
+    return int(digits) if digits else 0
+
+
+def _read_pptx(p: Path) -> str:
+    """The text of each slide, in order: 'Slide 1: ...'."""
+    a = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+    with zipfile.ZipFile(p) as z:
+        slides = sorted((n for n in z.namelist() if n.startswith("ppt/slides/slide") and n.endswith(".xml")),
+                        key=_part_number)
+        out = []
+        for i, name in enumerate(slides[:100], 1):
+            root = _zip_xml(z, name)
+            lines = []
+            for para in root.iter(f"{a}p"):
+                line = "".join(t.text or "" for t in para.iter(f"{a}t")).strip()
+                if line:
+                    lines.append(line)
+            out.append(f"Slide {i}: " + " / ".join(lines))
+    return "\n".join(out)
+
+
+def _read_xlsx(p: Path) -> str:
+    """Each sheet's rows, cells separated by tabs (first 200 rows per sheet)."""
+    s = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+    with zipfile.ZipFile(p) as z:
+        names = z.namelist()
+        shared = []
+        if "xl/sharedStrings.xml" in names:
+            for si in _zip_xml(z, "xl/sharedStrings.xml").iter(f"{s}si"):
+                shared.append("".join(t.text or "" for t in si.iter(f"{s}t")))
+        sheets = sorted((n for n in names if n.startswith("xl/worksheets/sheet") and n.endswith(".xml")),
+                        key=_part_number)
+        out = []
+        for i, name in enumerate(sheets[:10], 1):
+            rows = []
+            for row in list(_zip_xml(z, name).iter(f"{s}row"))[:200]:
+                cells = []
+                for c in row.iter(f"{s}c"):
+                    v = c.find(f"{s}v")
+                    if c.get("t") == "s" and v is not None and v.text and v.text.isdigit() and int(v.text) < len(shared):
+                        cells.append(shared[int(v.text)])
+                    elif c.get("t") == "inlineStr":
+                        cells.append("".join(t.text or "" for t in c.iter(f"{s}t")))
+                    else:
+                        cells.append(v.text if v is not None and v.text else "")
+                if any(cells):
+                    rows.append("\t".join(cells))
+            out.append(f"Sheet {i}:\n" + "\n".join(rows))
+    return "\n".join(out)
+
+
+READABLE = ".txt, .md, .csv, .docx, .pdf, .pptx and .xlsx"
+
+
+def _extract_text(p: Path, max_chars: int = MAX_CHARS, max_pdf_pages: int = 10) -> str | None:
+    """All the text in a document we know how to read, or None if we can't read this type."""
+    ext = p.suffix.lower()
+    if ext in TEXT_TYPES:
+        return _read_plain(p)
+    if ext == ".docx":
+        return _read_docx(p)
+    if ext == ".pdf":
+        return _read_pdf(p, max_chars, max_pdf_pages)
+    if ext == ".pptx":
+        return _read_pptx(p)
+    if ext == ".xlsx":
+        return _read_xlsx(p)
+    return None
+
+
 def read_file_text(path: str) -> str:
-    """Read the text inside a document (.txt, .md, .csv, .docx, ...) and return the first 3000 characters.
+    """Read the text inside a document (.txt, .md, .csv, .docx, .pdf, PowerPoint .pptx, Excel .xlsx) and return the first 3000 characters.
 
     Args:
         path: Full path of the file, e.g. from find_file.
@@ -274,17 +356,11 @@ def read_file_text(path: str) -> str:
         _session().status(f"Reading {p.name}")
     ext = p.suffix.lower()
     try:
-        if ext in TEXT_TYPES:
-            text = _read_plain(p)
-        elif ext == ".docx":
-            text = _read_docx(p)
-        elif ext == ".pdf":
-            try:
-                text = _read_pdf(p)
-            except ImportError:
-                return f"Error: I can't read PDF files yet. I can open {p.name} on the screen or send it to the phone."
-        else:
-            return f"Error: I can't read {ext or 'this kind of'} files. I can read .txt, .md, .csv and .docx."
+        text = _extract_text(p)
+        if text is None:
+            return f"Error: I can't read {ext or 'this kind of'} files. I can read {READABLE}."
+    except ImportError:
+        return f"Error: I can't read PDF files yet. I can open {p.name} on the screen or send it to the phone."
     except Exception as e:  # noqa: BLE001
         return f"Error reading {p.name}: {e}"
     text = text.strip()

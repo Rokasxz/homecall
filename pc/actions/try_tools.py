@@ -12,11 +12,13 @@
     python -m pc.actions.try_tools --round2 also click_text / switch_to_app in a test window of its own, sends a
                                             test file to the Recycle Bin, and changes the volume while muted
                                             (then puts it back exactly)
+    python -m pc.actions.try_tools --files  also a real clipboard round trip (what you had copied is put back)
 
 Nothing real is deleted: the only thing removed at the end is the temporary
 test folder this script made itself, and its own copies in pc/outbox.
 """
 import json
+import os
 import platform
 import shutil
 import subprocess
@@ -28,7 +30,7 @@ import zipfile
 from pathlib import Path
 
 import pc.actions as actions
-from pc.actions import basic, extras, media, pointer, power
+from pc.actions import basic, clipboard, extras, media, pointer, power, search
 
 RESULTS: list[tuple[bool, str]] = []
 
@@ -66,6 +68,57 @@ def make_docx(path: Path, paragraphs: list[str]) -> None:
            f"<w:body>{body}</w:body></w:document>")
     with zipfile.ZipFile(path, "w") as z:
         z.writestr("word/document.xml", xml)
+
+
+def make_pptx(path: Path, slides: list[list[str]]) -> None:
+    """A tiny but real PowerPoint file: one slide per list, one paragraph per string."""
+    a = "http://schemas.openxmlformats.org/drawingml/2006/main"
+    p = "http://schemas.openxmlformats.org/presentationml/2006/main"
+    with zipfile.ZipFile(path, "w") as z:
+        for i, lines in enumerate(slides, 1):
+            paras = "".join(f"<a:p><a:r><a:t>{line}</a:t></a:r></a:p>" for line in lines)
+            z.writestr(f"ppt/slides/slide{i}.xml",
+                       f'<?xml version="1.0" encoding="UTF-8"?><p:sld xmlns:a="{a}" xmlns:p="{p}"><p:cSld><p:spTree>'
+                       f"<p:sp><p:txBody>{paras}</p:txBody></p:sp></p:spTree></p:cSld></p:sld>")
+
+
+def make_xlsx(path: Path, rows: list[list[str]]) -> None:
+    """A tiny but real Excel file: text cells go through the shared-strings table, numbers stay numbers."""
+    s = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    shared: list[str] = []
+    xml_rows = []
+    for r, row in enumerate(rows, 1):
+        cells = []
+        for value in row:
+            if value.replace(".", "", 1).isdigit():
+                cells.append(f"<c><v>{value}</v></c>")
+            else:
+                shared.append(value)
+                cells.append(f'<c t="s"><v>{len(shared) - 1}</v></c>')
+        xml_rows.append(f'<row r="{r}">{"".join(cells)}</row>')
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("xl/sharedStrings.xml", f'<?xml version="1.0" encoding="UTF-8"?><sst xmlns="{s}">'
+                   + "".join(f"<si><t>{t}</t></si>" for t in shared) + "</sst>")
+        z.writestr("xl/worksheets/sheet1.xml", f'<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="{s}">'
+                   f"<sheetData>{''.join(xml_rows)}</sheetData></worksheet>")
+
+
+def make_pdf(path: Path, line: str) -> None:
+    """A tiny but real one-page PDF with one line of (ASCII) text."""
+    stream = f"BT /F1 12 Tf 10 50 Td ({line}) Tj ET".encode("latin-1")
+    objects = [b"<</Type/Catalog/Pages 2 0 R>>", b"<</Type/Pages/Kids[3 0 R]/Count 1>>",
+               b"<</Type/Page/Parent 2 0 R/MediaBox[0 0 400 100]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>",
+               b"<</Length %d>>stream\n" % len(stream) + stream + b"\nendstream",
+               b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>"]
+    out, offsets = b"%PDF-1.4\n", []
+    for i, body in enumerate(objects, 1):
+        offsets.append(len(out))
+        out += b"%d 0 obj" % i + body + b"endobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+    out += b"".join(b"%010d 00000 n \n" % o for o in offsets)
+    out += b"trailer<</Size %d/Root 1 0 R>>\nstartxref\n%d\n%%%%EOF\n" % (len(objects) + 1, xref)
+    path.write_bytes(out)
 
 
 def safe_tests(tmp: Path) -> None:
@@ -205,6 +258,44 @@ def safe_tests(tmp: Path) -> None:
         r = extras.send_folder_to_phone("C:\\Windows" if sys.platform == "win32" else "/etc")
         check("refuses a folder outside the allowed ones", r, r.startswith("Error"))
         actions.current_session = None
+
+        print("\nPowerPoint, Excel and PDF")
+        docs = tmp / "Docs"
+        docs.mkdir()
+        make_pptx(docs / "Pitch.pptx", [["HomeCall", "Call your PC"], ["Demo", "Find my CV"]])
+        make_xlsx(docs / "Budget.xlsx", [["Item", "Price"], ["Pica", "12.5"], ["Sutartis su ąžuolu", "3"]])
+        make_pdf(docs / "Cabin.pdf", "The cabin wifi password is on the fridge")
+        r = basic.read_file_text(str(docs / "Pitch.pptx"))
+        check("reads a PowerPoint, slide by slide", r, "Slide 1: HomeCall / Call your PC" in r and "Slide 2: Demo / Find my CV" in r)
+        r = basic.read_file_text(str(docs / "Budget.xlsx"))
+        check("reads an Excel sheet, row by row", r, "Item\tPrice" in r and "Pica\t12.5" in r and "ąžuolu" in r)
+        r = basic.read_file_text(str(docs / "Cabin.pdf"))
+        check("reads a PDF", r, "cabin wifi password" in r)
+
+        print("\nfind_recent_files")
+        now = time.time()
+        for name, age_days in (("today notes.txt", 0), ("last week report.txt", 6), ("old essay.txt", 40)):
+            (docs / name).write_text(name, encoding="utf-8")
+            os.utime(docs / name, (now - age_days * 86400 - 60, now - age_days * 86400 - 60))
+        r = search.find_recent_files(7)
+        check("lists files from the last 7 days, newest first", r,
+              r.index("today notes.txt") < r.index("last week report.txt") and "old essay.txt" not in r)
+        r = search.find_recent_files(60, "essay")
+        check("name filter + more days finds the old essay", r, "old essay.txt" in r and "today notes" not in r)
+        r = search.find_recent_files(0)
+        check("days=0 gives an error", r, r.startswith("Error"))
+
+        print("\nsearch_in_files")
+        (docs / "Lease.txt").write_text("Nuomos sutartį pasirašėme gegužę.", encoding="utf-8")
+        for words, expect in (("cabin wifi", "Cabin.pdf"), ("find my cv", "Pitch.pptx"), ("pica", "Budget.xlsx"),
+                              ("sutarti", "Lease.txt"), ("Python and ąžuolai", "Cover letter.docx")):
+            r = search.search_in_files(words)
+            check(f"finds '{words}' inside {expect}", r.split("\n", 2)[0] + " | " + (r.split("\n")[2].strip() if r.count("\n") > 1 else ""),
+                  expect in r)
+        r = search.search_in_files("zebra crossing")
+        check("says when no document mentions it", r, r.startswith("No document"))
+        r = search.search_in_files("ab")
+        check("fewer than 3 letters gives an error", r, r.startswith("Error"))
 
         print("\nread_file_text with a huge .docx")
         make_docx(tmp / "huge.docx", ["x" * (6 * 1024 * 1024)])
@@ -427,6 +518,22 @@ def safe_tests(tmp: Path) -> None:
             check("an app that isn't open gives an error", r, r.startswith("Error"))
         finally:
             extras._windows = real_windows
+
+    print("\nclipboard (no real reading here; the real round trip is under --files)")
+    actions.current_session = FakeSession(answer=False)
+    real_read = clipboard.read_clipboard_text
+    clipboard.read_clipboard_text = lambda: "SHOULD NOT BE READ"
+    try:
+        r = clipboard.get_clipboard()
+        check("get_clipboard asks first; 'No' = nothing read", r, r.startswith("Cancelled") and "SHOULD NOT" not in r)
+        actions.current_session = None
+        r = clipboard.get_clipboard()
+        check("get_clipboard without a phone refuses", r, r.startswith("Cancelled"))
+    finally:
+        clipboard.read_clipboard_text = real_read
+    for bad in ("", "x" * 10_001):
+        r = clipboard.set_clipboard(bad)
+        check(f"set_clipboard with {len(bad)} characters gives an error", r, r.startswith("Error"))
 
     print("\nswitch_to_app / set_volume (faked, nothing changes)")
     got = [w["hwnd"] for w in extras.match_windows("File Explorer", fake_windows, protected=extras.SYSTEM_WINDOWS)]
@@ -922,6 +1029,40 @@ def round2_tests() -> None:
     shutil.rmtree(work, ignore_errors=True)
 
 
+def files_tests() -> None:
+    """The real clipboard: put a test text on it, read it back, then put back what was there."""
+    print("\n--files: the real clipboard (what you had copied is put back afterwards)")
+    before = clipboard.read_clipboard_text()
+    if before is None:
+        print("      skipped: can't read the clipboard on this PC")
+        return
+    if before == "" and sys.platform == "win32":
+        import ctypes
+        if ctypes.windll.user32.CountClipboardFormats() > 0:
+            print("      skipped: your clipboard holds a picture or files, and I won't overwrite those")
+            return
+    test_text = "HomeCall clipboard test: ąčęėįšųūž 123"
+    try:
+        r = clipboard.set_clipboard(test_text)
+        check("set_clipboard puts text on the clipboard", r, r.startswith("Put"))
+        actions.current_session = FakeSession(answer=True)  # the "phone" taps Yes
+        try:
+            r = clipboard.get_clipboard()
+        finally:
+            actions.current_session = None
+        check("get_clipboard reads it back after a Yes (Lithuanian letters too)", r, test_text in r)
+    finally:
+        if before:
+            clipboard.write_clipboard_text(before)
+        elif sys.platform == "win32":
+            import ctypes
+            if ctypes.windll.user32.OpenClipboard(None):
+                ctypes.windll.user32.EmptyClipboard()
+                ctypes.windll.user32.CloseClipboard()
+    check("what you had copied is back on the clipboard", "restored" if clipboard.read_clipboard_text() == before else "DIFFERENT",
+          clipboard.read_clipboard_text() == before)
+
+
 def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="HomeCallTest_"))
     print(f"HomeCall tools test on {platform.system()} {platform.release()} (temporary folder: {tmp})")
@@ -939,6 +1080,8 @@ def main() -> int:
             more_tests()
         if "--round2" in sys.argv:
             round2_tests()
+        if "--files" in sys.argv:
+            files_tests()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)  # only the temporary folder made above
     failed = [label for ok, label in RESULTS if not ok]
