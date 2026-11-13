@@ -79,9 +79,9 @@ calling them from a small Python script, fix what doesn't work on this OS, then
 add read_file_text(path) that returns the first 3000 characters of a .txt, .md
 or .pdf file (use pypdf for pdf only if the lead approves adding it). Follow
 the docstring format exactly."
-- [ ] Every starter tool works on the demo PC (Windows and/or Mac)
-- [ ] `read_file_text(path)`: text of .txt/.md (and .pdf if approved)
-- [ ] `media_key(action)`: play/pause, next, volume up/down (pyautogui `playpause` etc.)
+- [x] Every starter tool works on the demo PC (Windows and/or Mac)
+- [x] `read_file_text(path)`: text of .txt/.md (and .pdf if approved)
+- [x] `media_key(action)`: play/pause, next, volume up/down (pyautogui `playpause` etc.)
 - [ ] `click_at(x, y)` and `click_text(text)`? (needs screen coordinates; talk to Brain first)
 - [ ] `lock_pc()` / `sleep_pc()` with confirm
 - [ ] Better `find_file`: also match "cv" to "Curriculum Vitae", recent files first
