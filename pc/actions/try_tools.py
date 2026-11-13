@@ -275,6 +275,24 @@ def safe_tests(tmp: Path) -> None:
             check(f"'{risky}' counts as risky", risky, pointer.is_risky(risky))
         for safe in ("Play button", "OK button", "Brunch menu", "Design tab", "Search box"):
             check(f"'{safe}' is not risky", safe, not pointer.is_risky(safe))
+        lt_risky = ["Siųsti", "Ištrinti", "Pašalinti", "Pirkti", "Mokėti", "Leisti", "Patvirtinti", "Įdiegti",
+                    "Perkelti į šiukšlinę", "Atsijungti", "Siusti"]
+        missing = [w for w in lt_risky if not pointer.is_risky(w)]
+        check("Lithuanian risky buttons ask (also typed without accents)", ", ".join(missing) or "all risky", not missing)
+        lt_safe = ["Groti", "Ieškoti", "Gerai", "Atšaukti", "Atidaryti", "Uždaryti", "Kitas"]
+        wrong = [w for w in lt_safe if pointer.is_risky(w)]
+        check("harmless Lithuanian buttons don't ask (Groti, Ieškoti, Gerai...)", ", ".join(wrong) or "none ask", not wrong)
+        en_more = ["Replace", "Overwrite", "Share", "Reply", "Forward", "Upload", "Approve", "Grant", "Open Anyway"]
+        missing = [w for w in en_more if not pointer.is_risky(w)]
+        check("more English risky words ask", ", ".join(missing) or "all risky", not missing)
+        for prog in ("setup.exe icon", "Evil.app", "run-me.command", "Zoom installer", "diegimo programa"):
+            check(f"double-clicking '{prog}' counts as starting a program", prog, pointer.looks_like_program(prog))
+        for doc in ("notes.md", "CV_Alex_Demo.pdf", "OK button", "Projects folder"):
+            check(f"double-clicking '{doc}' is not a program", doc, not pointer.looks_like_program(doc))
+        actions.current_session = FakeSession(answer=False)
+        r = pointer.click_at(10, 10, "setup.exe icon", double=True)
+        check("double-click on a program asks first; 'No' cancels", r, r.startswith("Cancelled"))
+        actions.current_session = None
         actions.current_session = FakeSession(answer=False)
         r = pointer.click_at(10, 10, "Send button")
         check("a risky click asks first; 'No' cancels (nothing clicked)", r, r.startswith("Cancelled"))
@@ -412,6 +430,10 @@ def click_tests() -> None:
             results.append(("click_at clicks a normal button without asking", r, r.startswith("Clicked")))
             r = pointer.click_at(*in_picture(delete), "Delete button")
             results.append(("click_at asks before 'Delete'; 'No' cancels", r, r.startswith("Cancelled")))
+            r = pointer.click_at(*in_picture(delete), "Ištrinti")
+            results.append(("click_at asks before Lithuanian 'Ištrinti'; 'No' cancels", r, r.startswith("Cancelled")))
+            r = pointer.click_at(*in_picture(delete), "setup.exe", double=True)
+            results.append(("a double-click on 'setup.exe' asks; 'No' cancels", r, r.startswith("Cancelled")))
         finally:
             actions.current_session = None
         root.after(500, done)
