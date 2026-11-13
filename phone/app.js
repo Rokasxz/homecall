@@ -9,30 +9,62 @@ let lastFrameUrl = null;
 $("callBtn").onclick = () => connect($("code").value.trim());
 $("code").addEventListener("keydown", (e) => { if (e.key === "Enter") $("callBtn").click(); });
 
+// The call reconnects by itself if the connection drops (phone locked, network
+// switch, server restart). It stops at the first "error" from the PC (wrong code,
+// another phone on the call), so it never burns through the wrong-code lockout.
+let callCode = null;     // the code of the current call, for reconnecting
+let wantCall = false;    // false after Hang up or an error from the PC
+let retries = 0;
+const pending = [];      // things said while disconnected, sent after reconnecting
+
 function connect(code) {
   if (code.length !== 6) { $("connectError").textContent = "The code has 6 digits."; return; }
   $("connectError").textContent = "";
-  const proto = location.protocol === "https:" ? "wss" : "ws";
-  ws = new WebSocket(`${proto}://${location.host}/ws`);
-  ws.binaryType = "blob";
-  ws.onopen = () => ws.send(JSON.stringify({ type: "hello", code }));
-  ws.onmessage = (e) => (e.data instanceof Blob ? showFrame(e.data) : handle(JSON.parse(e.data)));
-  ws.onclose = () => { showScreen("connect"); $("connectError").textContent = "Call ended."; };
-  ws.onerror = () => { $("connectError").textContent = "Could not reach the PC."; };
+  callCode = code; wantCall = true;
+  open();
 }
 
-function send(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
+function open() {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.binaryType = "arraybuffer";
+  ws.onopen = () => ws.send(JSON.stringify({ type: "hello", code: callCode }));
+  ws.onmessage = (e) => (e.data instanceof ArrayBuffer
+    ? showFrame(new Blob([e.data], { type: "image/jpeg" }))  // a type helps iPhone Safari show it
+    : handle(JSON.parse(e.data)));
+  ws.onclose = () => {
+    if (wantCall && retries < 5) {
+      retries += 1;
+      setStatus("Connection lost, reconnecting...");
+      setTimeout(open, 1500);
+    } else {
+      showScreen("connect");
+      if (!$("connectError").textContent) $("connectError").textContent = "Call ended.";
+    }
+  };
+  ws.onerror = () => { if (!wantCall) $("connectError").textContent = "Could not reach the PC."; };
+}
+
+function send(obj) {
+  if (ws && ws.readyState === 1) { ws.send(JSON.stringify(obj)); return; }
+  pending.push(obj);  // never drop what the user said: send it once we're back
+  setStatus(wantCall ? "Reconnecting... I'll send it when we're back." : "Not connected. Call your PC first.");
+}
+
 function showScreen(name) { $("connect").classList.toggle("hidden", name !== "connect"); $("call").classList.toggle("hidden", name !== "call"); }
 
 // ------------------------------------------------------------- messages
 function handle(msg) {
   switch (msg.type) {
-    case "welcome": showScreen("call"); setStatus(msg.text); break;
+    case "welcome":
+      showScreen("call"); setStatus(msg.text); retries = 0;
+      while (pending.length) send(pending.shift());
+      break;
     case "status": setStatus(msg.text); break;
     case "reply": addMsg(msg.text, "pc"); speak(msg.text); setStatus(""); break;
     case "file": addFile(msg.name, msg.url); break;
     case "confirm": askConfirm(msg.id, msg.text); break;
-    case "error": addMsg("Error: " + msg.text, "pc"); $("connectError").textContent = msg.text; break;
+    case "error": wantCall = false; addMsg("Error: " + msg.text, "pc"); $("connectError").textContent = msg.text; break;
   }
 }
 
@@ -80,7 +112,7 @@ function say(text) {
 }
 
 $("textForm").onsubmit = (e) => { e.preventDefault(); say($("textInput").value); $("textInput").value = ""; };
-$("hangupBtn").onclick = () => { send({ type: "hangup" }); if (ws) ws.close(); };
+$("hangupBtn").onclick = () => { wantCall = false; pending.length = 0; send({ type: "hangup" }); if (ws) ws.close(); };
 
 // ----------------------------------------------------------------- voice
 // Speech-to-text: the browser's built-in recognizer (Chrome on Android, Safari on iOS).
