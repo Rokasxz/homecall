@@ -9,8 +9,10 @@ said. It must:
   - keep the phone informed with session.status(...),
   - finish with session.emit({"type": "reply", "text": ...}) which the phone speaks.
 
-Without an ANTHROPIC_API_KEY it runs in "echo mode" so the other areas can be
-built and tested without a key.
+Three modes (HOMECALL_BRAIN in .env):
+  api   Claude API with ANTHROPIC_API_KEY (the default when a key is set)
+  max   Claude through Claude Code's login on this PC, no API credits (max_backend.py)
+  echo  no AI: repeats what you said, so the other areas can test (the default otherwise)
 """
 import base64
 import os
@@ -31,6 +33,8 @@ open apps, type). Do it; don't ask questions unless something is truly ambiguous
 Before anything that can't be undone (deleting, sending money, closing unsaved
 work), use a tool that asks for confirmation, or say what you would do and ask.
 If a tool returns an error, say what went wrong in plain words.
+Tools that ask the user Yes/No do it on the phone themselves. If a tool answers
+"Cancelled", the user tapped No: just say it's cancelled, don't ask them again.
 """
 
 
@@ -38,7 +42,10 @@ class Brain:
     def __init__(self) -> None:
         self.history: list[dict] = []
         self.client = None
-        if os.environ.get("ANTHROPIC_API_KEY"):
+        self.mode = os.environ.get("HOMECALL_BRAIN", "").strip().lower()
+        if self.mode not in ("api", "max", "echo"):
+            self.mode = "api" if os.environ.get("ANTHROPIC_API_KEY") else "echo"
+        if self.mode == "api":
             import anthropic
             self.client = anthropic.Anthropic()
 
@@ -46,7 +53,11 @@ class Brain:
     def handle(self, text: str, session, screenshot_png: bytes | None = None) -> None:
         actions.current_session = session
         try:
-            if self.client is None:
+            if self.mode == "max":
+                from pc.brain import max_backend
+                reply = max_backend.think(text, self.history, screenshot_png, SYSTEM, session)
+                self._remember(text, reply)
+            elif self.client is None:
                 reply = self._echo(text)
             else:
                 reply = self._think(text, session, screenshot_png)
@@ -94,11 +105,13 @@ class Brain:
                 reply = reply or "I can't help with that one."
         reply = reply or "Done."
 
-        # Remember the conversation as plain text (no screenshots, no tool details)
-        # so the next request stays small. Keep the last 10 exchanges.
+        self._remember(text, reply)
+        return reply
+
+    def _remember(self, text: str, reply: str) -> None:
+        """Keep the conversation as plain text (no screenshots, no tool details), last 10 exchanges."""
         self.history += [{"role": "user", "content": text}, {"role": "assistant", "content": reply}]
         self.history = self.history[-20:]
-        return reply
 
     # ------------------------------------------------------------- echo mode
     def _echo(self, text: str) -> str:
