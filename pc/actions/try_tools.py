@@ -209,6 +209,49 @@ def safe_tests(tmp: Path) -> None:
         r = basic.send_file_to_phone(str(tmp / "Projects"))
         check("refuses to send a folder", r, r.startswith("Error"))
 
+        print("\nsend_file_to_phone with big photos (pictures generated here, none of yours)")
+        from PIL import Image
+        shots = tmp / "GeneratedPhotos"
+        shots.mkdir()
+        noise = Image.frombytes("RGB", (4000, 3000), os.urandom(4000 * 3000 * 3))  # random colours = big JPEG
+        exif = Image.Exif()
+        exif[0x0112] = 6        # "rotate 90 degrees", as phones store it
+        exif[0x010F] = "TestCam"  # camera maker: must not travel along
+        noise.save(shots / "big photo.jpg", "JPEG", quality=95, exif=exif)
+        Image.new("RGB", (300, 200), (200, 50, 50)).save(shots / "small photo.jpg", "JPEG")
+        (shots / "fake photo.jpg").write_bytes(b"not a picture" * 200_000)  # 2.6 MB of junk named .jpg
+
+        def sent(phone_: "FakeSession") -> Path | None:
+            cards = [e for e in phone_.sent if e.get("type") == "file"]
+            tok = cards[-1]["url"].rsplit("/", 1)[-1] if cards else ""
+            found = list(basic.OUTBOX.glob(f"{tok}__*")) if tok else []
+            return found[0] if found else None
+
+        phone = FakeSession(answer=False)
+        actions.current_session = phone
+        big = shots / "big photo.jpg"
+        r = basic.send_file_to_phone(str(big))
+        copy = sent(phone)
+        with Image.open(copy) as im:
+            size_ok, upright, no_exif = max(im.size) <= 2000, im.size[1] > im.size[0], len(im.getexif()) == 0
+        check("a big photo goes as a smaller copy", f"{r}", r.startswith("Sent a smaller copy")
+              and copy.name.endswith("big photo (small).jpg") and copy.stat().st_size < big.stat().st_size / 3)
+        check("the copy is at most 2000 px, turned upright, and has no photo data (EXIF/GPS)",
+              f"long side ok={size_ok}, upright={upright}, no EXIF={no_exif}", size_ok and upright and no_exif)
+        copy.unlink()
+        r = basic.send_file_to_phone(str(big), full_size=True)
+        copy = sent(phone)
+        check("full_size=True sends the original", r, r == "Sent big photo.jpg to the phone."
+              and copy.read_bytes() == big.read_bytes())
+        copy.unlink()
+        for name in ("small photo.jpg", "fake photo.jpg"):
+            r = basic.send_file_to_phone(str(shots / name))
+            copy = sent(phone)
+            check(f"'{name}' is sent as it is", r, r == f"Sent {name} to the phone."
+                  and copy.read_bytes() == (shots / name).read_bytes())
+            copy.unlink()
+        actions.current_session = None
+
         print("\ndelete_file (always answers No, nothing is deleted)")
         draft = tmp / "old draft.txt"
         r = basic.delete_file(str(draft))
@@ -274,14 +317,15 @@ def safe_tests(tmp: Path) -> None:
 
         print("\nfind_recent_files")
         now = time.time()
-        for name, age_days in (("today notes.txt", 0), ("last week report.txt", 6), ("old essay.txt", 40)):
+        for name, age_days in (("today rpt.txt", 0), ("last week rpt.txt", 6), ("old rpt.txt", 40)):
             (docs / name).write_text(name, encoding="utf-8")
             os.utime(docs / name, (now - age_days * 86400 - 60, now - age_days * 86400 - 60))
-        r = search.find_recent_files(7)
+        r = search.find_recent_files(7, "rpt")
         check("lists files from the last 7 days, newest first", r,
-              r.index("today notes.txt") < r.index("last week report.txt") and "old essay.txt" not in r)
-        r = search.find_recent_files(60, "essay")
-        check("name filter + more days finds the old essay", r, "old essay.txt" in r and "today notes" not in r)
+              "today rpt.txt" in r and "last week rpt.txt" in r and "old rpt.txt" not in r
+              and r.index("today rpt.txt") < r.index("last week rpt.txt"))
+        r = search.find_recent_files(60, "old rpt")
+        check("name filter + more days finds the old one", r, "old rpt.txt" in r and "today rpt" not in r)
         r = search.find_recent_files(0)
         check("days=0 gives an error", r, r.startswith("Error"))
 

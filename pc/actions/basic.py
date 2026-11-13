@@ -371,18 +371,58 @@ def read_file_text(path: str) -> str:
     return f"{p.name}:\n{text}"
 
 
-def send_file_to_phone(path: str) -> str:
-    """Send a file from the PC to the phone, so the user can download it there.
+PHOTO_TYPES = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
+SHRINK_ABOVE = 1_500_000   # photos bigger than ~1.5 MB get a smaller copy for mobile data
+SMALL_LONG_SIDE = 2000     # pixels: still sharp on any phone screen
+
+
+def _small_copy(p: Path, target: Path) -> Path | None:
+    """A phone-sized JPEG copy of a big photo (turned the right way up, without location data), or None."""
+    try:
+        from PIL import Image, ImageOps
+        with Image.open(p) as img:
+            img = ImageOps.exif_transpose(img)  # phones store "rotate me" in the photo data
+            img.thumbnail((SMALL_LONG_SIDE, SMALL_LONG_SIDE))
+            if img.mode not in ("RGB", "L"):
+                img = img.convert("RGB")
+            img.save(target, "JPEG", quality=82, optimize=True)  # saved without EXIF: no GPS location
+        if target.stat().st_size >= p.stat().st_size:  # not smaller after all: send the original
+            target.unlink()
+            return None
+        return target
+    except Exception:  # noqa: BLE001  (not really a picture, or Pillow can't read it)
+        target.unlink(missing_ok=True)
+        return None
+
+
+def _mb(n: int) -> str:
+    return f"{n / 1_000_000:.1f} MB" if n >= 100_000 else f"{max(1, n // 1000)} KB"
+
+
+def send_file_to_phone(path: str, full_size: bool = False) -> str:
+    """Send a file from the PC to the phone, so the user can download it there. Big photos are sent as a smaller copy (fast on mobile data) unless full_size is True.
 
     Args:
         path: Full path of the file, e.g. from find_file.
+        full_size: True to send a big photo as the original file. Default False (a smaller copy).
     """
     p = _resolve(path)
     if p is None or not p.is_file():
         return f"Error: '{path}' is not a file I can send."
-    if p.stat().st_size > 200 * 1024 * 1024:
+    size = p.stat().st_size
+    if size > 200 * 1024 * 1024:
         return "Error: file is bigger than 200 MB."
     token = secrets.token_urlsafe(12)
+    if not full_size and p.suffix.lower() in PHOTO_TYPES and size > SHRINK_ABOVE:
+        if _session():
+            _session().status(f"Making a smaller copy of {p.name}")
+        name = f"{p.stem} (small).jpg"
+        small = _small_copy(p, OUTBOX / f"{token}__{name}")
+        if small is not None:
+            if _session():
+                _session().emit({"type": "file", "name": name, "url": f"/files/{token}"})
+            return (f"Sent a smaller copy of {p.name} to the phone ({_mb(small.stat().st_size)} instead of "
+                    f"{_mb(size)}). Say 'full size' if the user wants the original.")
     shutil.copy2(p, OUTBOX / f"{token}__{p.name}")
     if _session():
         _session().emit({"type": "file", "name": p.name, "url": f"/files/{token}"})
