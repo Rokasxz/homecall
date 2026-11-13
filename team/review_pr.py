@@ -55,7 +55,7 @@ def main() -> None:
     a = ap.parse_args()
 
     pr = status.gh_json("pr", "view", str(a.number), "--repo", REPO, "--json",
-                        "number,title,author,headRefName,headRefOid,isCrossRepository,files,state")
+                        "number,title,author,headRefName,headRefOid,isCrossRepository,files,state,autoMergeRequest")
     author, sha, branch = pr["author"]["login"], pr["headRefOid"], pr["headRefName"]
     collaborators = {c["login"] for c in status.gh_json("api", f"repos/{REPO}/collaborators")}
     if pr["isCrossRepository"] or author not in collaborators:
@@ -129,7 +129,11 @@ def main() -> None:
     if overlaps:
         rows.append("| Other open PRs change the same files | " + "; ".join(overlaps)
                     + ": merge one first, then the other must update from main |")
-    verdict = ("**Safe to merge.** If auto-merge is on it merges by itself; otherwise turn it on: `gh pr merge --auto --merge` (or press Merge)." if ok and not contract and not reqs else
+    safe = ("**Safe to merge.** Auto-merge is on: GitHub merges it by itself when the checks are green."
+            if pr.get("autoMergeRequest") else
+            "**Safe to merge.** Turn on auto-merge so it merges by itself when the checks are green: "
+            f"`gh pr merge {a.number} --auto --merge` (or the \"Enable auto-merge\" button on this page).")
+    verdict = (safe if ok and not contract and not reqs else
                "**Almost:** checks pass, but Rokas must OK the contract/library change first." if ok else
                "**Fix first:** see the FAILED/PROBLEM lines above. Paste them into your AI with "
                "PROMPT J (\"something is broken\") from TEAMMATE-GUIDE.md, then push again: I re-check automatically.")

@@ -98,7 +98,7 @@ def collect() -> dict:
     collaborators = {c["login"] for c in gh_json("api", f"repos/{REPO}/collaborators")}
     prs = gh_json("pr", "list", "--repo", REPO, "--state", "open", "--json",
                   "number,title,author,headRefName,headRefOid,isCrossRepository,mergeable,"
-                  "files,statusCheckRollup,updatedAt,url")
+                  "files,statusCheckRollup,updatedAt,url,autoMergeRequest")
     out_prs = []
     for pr in prs:
         author = pr["author"]["login"]
@@ -135,6 +135,7 @@ def collect() -> dict:
             "files": files, "outside_area": outside, "tasks_md_ok": tasks_ok, "tasks_md_note": tasks_note,
             "contract_changed": "CLAUDE.md" in files, "requirements_changed": "requirements.txt" in files,
             "ci": ci, "mergeable": pr["mergeable"], "updated": pr["updatedAt"],
+            "auto_merge": pr.get("autoMergeRequest") is not None,
             "needs_review": reviewed_sha is None or not pr["headRefOid"].startswith(reviewed_sha),
         })
 
@@ -223,7 +224,7 @@ def markdown(f: dict) -> str:
         if p.get("overlaps"):
             flags.append("same files as " + ", ".join(f"#{n}" for n in p["overlaps"]))
         L.append(f"- #{p['number']} {p['title']} by {p['author']} ({p['branch']}): CI {p['ci']}, "
-                 f"{p['mergeable'].lower()}, updated {ago(p['updated'])}, "
+                 f"{p['mergeable'].lower()}, auto-merge {'on' if p['auto_merge'] else 'OFF'}, updated {ago(p['updated'])}, "
                  f"{'NEEDS REVIEW' if p['needs_review'] else 'reviewed at this commit'}"
                  + ("; " + "; ".join(flags) if flags else "; files OK"))
     L += ["", "## Branches pushed without a Pull Request"]
