@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>HomeCall voice</title>
+<style>
+  :root { --bg:#0f1115; --card:#1a1d24; --text:#f2f4f8; --muted:#9aa3b2; --accent:#3b82f6; --red:#ef4444; --green:#22c55e; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:17px/1.4 -apple-system, system-ui, sans-serif;
+         min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:24px 16px; }
+  h1 { font-size:28px; margin:8px 0 4px; } p { color:var(--muted); margin:0 0 16px; }
+  .wrap { width:100%; max-width:440px; }
+  input { width:100%; font-size:24px; letter-spacing:4px; padding:14px; border-radius:12px; border:1px solid #333;
+          background:var(--card); color:var(--text); text-align:center; }
+  button { width:100%; font-size:20px; padding:16px; margin-top:12px; border:0; border-radius:14px; color:#fff;
+           background:var(--accent); font-weight:600; }
+  button.end { background:var(--red); }
+  #orb { width:160px; height:160px; border-radius:50%; margin:28px auto; background:#222833; transition:all .3s; }
+  #orb.listening { background:var(--green); box-shadow:0 0 0 12px rgba(34,197,94,.15); }
+  #orb.speaking { background:var(--accent); box-shadow:0 0 0 18px rgba(59,130,246,.18); animation:pulse 1s infinite; }
+  @keyframes pulse { 50% { transform:scale(1.06); } }
+  #state { text-align:center; color:var(--muted); min-height:24px; }
+  #err { color:var(--red); min-height:24px; margin-top:10px; text-align:center; }
+  #log { margin-top:16px; display:flex; flex-direction:column; gap:8px; }
+  .msg { padding:10px 12px; border-radius:12px; background:var(--card); }
+  .msg.me { align-self:flex-end; background:#243248; }
+  .file { display:block; padding:12px; border-radius:12px; background:#163a24; color:#fff; text-decoration:none; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>HomeCall</h1>
+  <p>Talk to your PC like a phone call. Interrupt it any time.</p>
+
+  <div id="start">
+    <input id="code" inputmode="numeric" maxlength="6" placeholder="123456" autocomplete="one-time-code">
+    <button id="callBtn">Call my PC</button>
+  </div>
+
+  <div id="incall" class="hidden">
+    <div id="orb"></div>
+    <div id="state">Connecting...</div>
+    <button id="endBtn" class="end">Hang up</button>
+    <div id="files"></div>
+    <div id="log"></div>
+  </div>
+  <div id="err"></div>
+</div>
+
+<script type="module">
+  import { Conversation } from "https://cdn.jsdelivr.net/npm/@elevenlabs/client@1.32.1/+esm";
+
+  const $ = (id) => document.getElementById(id);
+  let conversation = null, token = null, filesTimer = null;
+  const seenFiles = new Set();
+
+  function show(inCall) { $("start").classList.toggle("hidden", inCall); $("incall").classList.toggle("hidden", !inCall); }
+  function addLog(text, me) {
+    if (!text) return;
+    const d = document.createElement("div"); d.className = "msg" + (me ? " me" : ""); d.textContent = text;
+    $("log").prepend(d);
+  }
+
+  async function pollFiles() {
+    if (!token) return;
+    try {
+      const r = await fetch("/voice/call/files?token=" + encodeURIComponent(token));
+      const { files } = await r.json();
+      for (const f of files || []) {
+        if (seenFiles.has(f.url)) continue;
+        seenFiles.add(f.url);
+        const a = document.createElement("a"); a.className = "file"; a.href = f.url; a.download = f.name;
+        a.textContent = "Download " + f.name; $("files").prepend(a);
+      }
+    } catch (_) { /* try again next time */ }
+  }
+
+  $("callBtn").onclick = async () => {
+    $("err").textContent = "";
+    const code = $("code").value.trim();
+    if (code.length !== 6) { $("err").textContent = "The code has 6 digits."; return; }
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true });  // ask for the mic first
+    } catch (e) {
+      $("err").textContent = "Microphone blocked. Allow it (Safari: aA -> Website Settings), or open this page in Safari, not inside Instagram.";
+      return;
+    }
+    const r = await fetch("/voice/call/start", { method: "POST", headers: { "Content-Type": "application/json" },
+                                                 body: JSON.stringify({ code }) });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) { $("err").textContent = data.detail || ("Error " + r.status); return; }
+    token = data.token;
+    show(true);
+    try {
+      conversation = await Conversation.startSession({
+        signedUrl: data.signed_url,
+        onConnect: () => { $("state").textContent = "Connected. Just talk."; },
+        onDisconnect: () => { $("state").textContent = "Call ended."; $("orb").className = ""; clearInterval(filesTimer); },
+        onError: (e) => { $("err").textContent = "Call error: " + (e && e.message ? e.message : e); },
+        onModeChange: (m) => {
+          const mode = m && m.mode ? m.mode : m;
+          $("orb").className = mode === "speaking" ? "speaking" : "listening";
+          $("state").textContent = mode === "speaking" ? "Speaking... (talk to interrupt)" : "Listening...";
+        },
+        onMessage: (m) => {
+          const text = m && (m.message || m.text);
+          const me = m && (m.source === "user" || m.role === "user");
+          addLog(text, me);
+        },
+      });
+      filesTimer = setInterval(pollFiles, 2000);
+    } catch (e) {
+      show(false);
+      $("err").textContent = "Couldn't start the call: " + (e && e.message ? e.message : e);
+    }
+  };
+
+  $("endBtn").onclick = async () => {
+    try { if (conversation) await conversation.endSession(); } catch (_) {}
+    conversation = null; clearInterval(filesTimer); show(false);
+  };
+</script>
+</body>
+</html>
