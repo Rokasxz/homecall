@@ -9,6 +9,18 @@ let lastFrameUrl = null;
 $("callBtn").onclick = () => connect($("code").value.trim());
 $("code").addEventListener("keydown", (e) => { if (e.key === "Enter") $("callBtn").click(); });
 
+// Two ways to talk: "Type" stays here; "Voice call" opens the voice page with the same code.
+// The code is kept for this tab only (sessionStorage), never in the address.
+const CODE_KEY = "homecallCode";
+function rememberCode(code) { try { sessionStorage.setItem(CODE_KEY, code); } catch (_) {} }
+try { const saved = sessionStorage.getItem(CODE_KEY); if (saved) $("code").value = saved; } catch (_) {}
+$("voiceBtn").onclick = () => {
+  const code = $("code").value.trim();
+  if (code.length !== 6) { $("connectError").textContent = "The code has 6 digits."; return; }
+  rememberCode(code);
+  location.href = "/voice/call";
+};
+
 // The call reconnects by itself if the connection drops (phone locked, network
 // switch, server restart). It stops at the first "error" from the PC (wrong code,
 // another phone on the call), so it never burns through the wrong-code lockout.
@@ -24,12 +36,17 @@ function connect(code) {
   if (code.length !== 6) { $("connectError").textContent = "The code has 6 digits."; return; }
   $("connectError").textContent = "";
   callCode = code; wantCall = true; connected = false; retries = 0;
+  rememberCode(code);
   calling(true);
   open();
 }
 
 // Show right away that the tap did something; back to normal when it ends.
-function calling(on) { $("callBtn").disabled = on; $("callBtn").textContent = on ? "Calling your PC..." : "Call my PC"; }
+function calling(on) {
+  const title = $("callBtn").querySelector(".choice-title");
+  $("callBtn").disabled = on; $("voiceBtn").disabled = on;
+  title.textContent = on ? "Calling your PC..." : title.dataset.label;
+}
 
 function open() {
   const proto = location.protocol === "https:" ? "wss" : "ws";

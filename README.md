@@ -23,9 +23,9 @@ python start.py
 ```
 - The first time it asks for the two keys: paste each one and press Enter (typing is hidden).
   They stay on your computer only, in `.env`. Just Enter skips one (no AI / no voice).
-- It prints the phone address, the voice-call address (`/voice/call`, open it in Safari or
-  Chrome, not inside Instagram/Discord) and a 6-digit code. Open the address on your phone,
-  type the code, and you control your computer. The address and code change every start.
+- It prints the phone address and a 6-digit code. Open the address on your phone (Safari or
+  Chrome, not inside Instagram/Discord), type the code, and choose **Voice call** (talk like a
+  phone call) or **Type** (write, see the live screen). The address and code change every start.
 - Keep the window open; Ctrl+C stops everything. Every phone visit is written to
   `homecall.log` (private: never post it). Found a bug? GitHub -> Issues -> New issue -> Bug.
 - The Claude key costs the team a cent or two per request: test, don't leave it chatting.
