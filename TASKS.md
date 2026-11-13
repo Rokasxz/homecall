@@ -48,6 +48,12 @@ them and show me the result. Don't change files outside tests/ and demo/."
 - [ ] Device log: each evening, try every feature on a real phone and PC; note what broke, for whom
 - [ ] `demo/PITCH.md`: 1-minute pitch + the honest security answer; practise the demo twice on day 2
 Needs from others: everyone: tell me when a piece is merged so I test it.
+- Hands (Mantas): `_resolve()` in pc/actions/basic.py raises `ValueError` when a
+  path contains a null character (`"\x00"`), so list_files/open_file/send_file_to_phone/
+  delete_file crash instead of returning "Error: ...". Fix: wrap `p.resolve()` in
+  try/except ValueError/OSError and return None. Test:
+  `tests/test_hands.py::test_file_tools_never_raise_on_weird_input` (marked xfail; it
+  will turn to XPASS-fail when fixed, then remove the xfail).
 
 ## Mantas: Hands (`pc/actions/`)
 Start prompt: "Read PLAN.md and CLAUDE.md, especially contract section 2. My
