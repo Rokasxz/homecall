@@ -9,20 +9,43 @@ import inspect
 import re
 
 import pc.actions as actions  # for actions.current_session
+from pc.actions.basic import PROGRAM_EXTS, _plain
 
 DEFAULT_SHOT_WIDTH = 1280
 
-# Clicking a button with one of these words can't be undone: ask on the phone first.
-RISKY_WORDS = ["send", "delete", "remove", "bin", "trash", "erase", "discard", "buy", "pay", "purchase",
-               "order", "checkout", "transfer", "allow", "accept", "agree", "install", "uninstall", "run",
-               "confirm", "submit", "post", "publish", "sign", "format", "reset", "shut down", "restart",
-               "log out", "sign out"]
-_RISKY = re.compile(r"\b(" + "|".join(re.escape(w) for w in RISKY_WORDS) + r")", re.IGNORECASE)
+# Clicking a button with one of these can't be undone: ask on the phone first.
+# Written without accents and matched against the button text without accents, so "Ištrinti" matches
+# "istrin". A word matches at the START of a word: "send" also catches "Sending", "istrin" "Ištrinkite".
+RISKY_WORDS = [
+    # English
+    "send", "delete", "remove", "bin", "trash", "erase", "discard", "buy", "pay", "purchase", "order",
+    "checkout", "transfer", "allow", "accept", "agree", "approve", "grant", "install", "uninstall", "run",
+    "confirm", "submit", "post", "publish", "share", "reply", "forward", "upload", "replace", "overwrite",
+    "sign", "format", "reset", "shut down", "restart", "log out", "open anyway",
+    # Lithuanian (Windows in Lithuanian): siųsti, ištrinti, pašalinti, pirkti, mokėti, leisti/paleisti,
+    # patvirtinti, įdiegti, šiukšlinė, atsijungti, išjungti, užsakyti, pateikti, bendrinti, įkelti,
+    # skelbti, atsakyti, persiųsti, perrašyti, pakeisti, sutinku, priimti
+    "siust", "siunc", "issiust", "persiust", "istrin", "trint", "pasalin", "salint", "pirk", "moket",
+    "mokej", "sumok", "leist", "leisk", "paleist", "patvirtin", "idieg", "diegt", "siuksl", "atsijung",
+    "isjung", "uzsaky", "pateik", "bendrin", "ikelt", "skelbt", "paskelb", "atsakyt", "perrasy",
+    "pakeist", "sutinku", "priimt",
+]
+_RISKY = re.compile(r"\b(" + "|".join(re.escape(w) for w in RISKY_WORDS) + r")")
+
+# A double-click on one of these RUNS something (open_file would ask first, so a double-click must too).
+_PROGRAM_EXT_RE = "|".join(re.escape(ext.lstrip(".")) for ext in sorted(PROGRAM_EXTS))
+_PROGRAM = re.compile(r"\.(" + _PROGRAM_EXT_RE + r")\b"
+                      r"|\b(setup|installer|install|program|application|script|programa|diegim)")
 
 
 def is_risky(what: str) -> bool:
-    """True if the thing to click sounds like it can't be undone (Send, Delete, Buy, Allow...)."""
-    return bool(_RISKY.search(what))
+    """True if the thing to click sounds like it can't be undone (Send, Delete, Buy, Allow, Ištrinti...)."""
+    return bool(_RISKY.search(_plain(what)))
+
+
+def looks_like_program(what: str) -> bool:
+    """True if double-clicking it would start a program (setup.exe, Evil.app, an installer...)."""
+    return bool(_PROGRAM.search(_plain(what)))
 
 
 def _session():
@@ -70,7 +93,7 @@ def to_screen(x: int, y: int) -> tuple[int, int] | None:
 
 
 def click_at(x: int, y: int, what: str, double: bool = False) -> str:
-    """Click with the mouse at a point in the screenshot you were given (look at it first, aim at the middle of the button or link). Buttons like Send, Delete, Buy or Allow ask the user on the phone first.
+    """Click with the mouse at a point in the screenshot you were given (look at it first, aim at the middle of the button or link). Buttons like Send, Delete, Buy or Allow ask the user on the phone first. To open a file, use open_file instead of double-clicking it.
 
     Args:
         x: Pixels from the LEFT edge of the screenshot (not of the real screen).
@@ -91,7 +114,10 @@ def click_at(x: int, y: int, what: str, double: bool = False) -> str:
     if point is None:
         return f"Error: ({x}, {y}) is outside the screenshot, which is {pic_w} x {pic_h} pixels."
     real_x, real_y = point
-    if is_risky(what):
+    if double and looks_like_program(what):
+        if not _session() or not _session().confirm(f"Double-click '{what}' on the PC? This starts a program."):
+            return f"Cancelled: '{what}' looks like a program and the user did not confirm starting it."
+    elif is_risky(what):
         if not _session() or not _session().confirm(f"Click '{what}' on the PC?"):
             return f"Cancelled: the user did not confirm clicking '{what}'."
     if _session():
