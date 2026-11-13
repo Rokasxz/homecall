@@ -1,43 +1,45 @@
 """Brain mode "max": thinks with Claude through Claude Code on this PC.  (Owner: Brain)
 
-Uses the Claude Agent SDK, which runs Claude Code in the background with the
-Claude login already on this computer (e.g. a Max plan), so no API credits are
-needed. Only works on a PC where Claude Code is installed and logged in, and
-the login is meant for your own use: fine for building and demoing on your own
-laptop, a real product would use an API key instead.
+Uses the Claude Agent SDK, which runs Claude Code with the Claude login already
+on this computer (e.g. a Max plan), so no API credits are needed. Only works on
+a PC where Claude Code is installed and logged in (`claude auth login`), and the
+login is meant for your own use: fine for building and demoing on your own
+laptop; a real product would use an API key instead.
 
 Turn it on with HOMECALL_BRAIN=max in .env (and `pip install claude-agent-sdk`).
 
-The Hands' functions (pc.actions.TOOLS) become tools in an in-process MCP
-server, so they run inside this program and can still ask the phone Yes/No.
-Claude Code's own tools (shell, file editing, web) are switched off: the AI can
-only use the Hands.
+Speed: ONE Claude Code process stays open for the whole call (started the
+moment the phone connects), so each request skips the ~2 s startup and Claude
+remembers the conversation itself.
+
+Safety: the Hands' functions (pc.actions.TOOLS) are the ONLY tools (an
+in-process MCP server, so they can still ask the phone Yes/No). Claude Code's
+own shell, file-editing and web tools, settings, hooks and CLAUDE.md are off.
 """
 import asyncio
 import base64
 import os
 import shutil
 import tempfile
+import threading
 
 import pc.actions as actions
 
 SERVER = "pc"  # tool names become mcp__pc__<function name>
-MODEL = os.environ.get("HOMECALL_MAX_MODEL", "sonnet")  # Claude Code alias; "opus" = smarter, slower
+MODEL = os.environ.get("HOMECALL_MAX_MODEL", "sonnet")   # Claude Code alias; "opus" = smarter, slower
+EFFORT = os.environ.get("HOMECALL_MAX_EFFORT", "low")    # low = snappy voice replies; medium/high = more careful
 MAX_TURNS = int(os.environ.get("HOMECALL_MAX_TURNS", "10"))
 _NEUTRAL_DIR = tempfile.mkdtemp(prefix="homecall-brain-")  # no project CLAUDE.md, hooks or settings
+LOGIN_HELP = "On this PC, run `claude auth login` once in a Terminal window, then call again."
 
 
-def _schema(func) -> dict:
-    """JSON schema for a Hands function, built from its type hints and docstring."""
+def _tool_info(func) -> tuple[str, dict]:
+    """Description and JSON schema for a Hands function (from its type hints + docstring)."""
     from anthropic import beta_tool  # already a project dependency
-    schema = dict(beta_tool(func).to_dict()["input_schema"])
+    d = beta_tool(func).to_dict()
+    schema = dict(d["input_schema"])
     schema.pop("additionalProperties", None)
-    return schema
-
-
-def _description(func) -> str:
-    from anthropic import beta_tool
-    return beta_tool(func).to_dict()["description"]
+    return d["description"], schema
 
 
 def _make_tool(func):
@@ -51,18 +53,19 @@ def _make_tool(func):
         return {"content": [{"type": "text", "text": str(text)}],
                 "is_error": str(text).startswith("Error")}
 
-    return tool(func.__name__, _description(func), _schema(func))(handler)
+    description, schema = _tool_info(func)
+    return tool(func.__name__, description, schema)(handler)
 
 
-async def _run(prompt_text: str, screenshot_png: bytes | None, system: str, session) -> str:
-    from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ResultMessage,
-                                  ToolUseBlock, create_sdk_mcp_server, query)
+def _options(system: str):
+    from claude_agent_sdk import ClaudeAgentOptions, create_sdk_mcp_server
 
     server = create_sdk_mcp_server(name=SERVER, version="1.0.0",
                                    tools=[_make_tool(f) for f in actions.TOOLS])
-    options = ClaudeAgentOptions(
+    return ClaudeAgentOptions(
         system_prompt=system,
         model=MODEL,
+        effort=EFFORT,
         max_turns=MAX_TURNS,
         tools=[],                                  # no shell, no file editing, no web
         mcp_servers={SERVER: server},
@@ -74,38 +77,79 @@ async def _run(prompt_text: str, screenshot_png: bytes | None, system: str, sess
         env={"ENABLE_TOOL_SEARCH": "false"},      # few tools: load them up front, saves a round-trip
     )
 
-    content: list[dict] = []
-    if screenshot_png:
-        content.append({"type": "image", "source": {"type": "base64", "media_type": "image/png",
-                                                     "data": base64.b64encode(screenshot_png).decode()}})
-    content.append({"type": "text", "text": prompt_text})
 
-    async def messages():
-        yield {"type": "user", "message": {"role": "user", "content": content}}
+class MaxBrain:
+    """One Claude Code conversation for the whole phone call."""
 
-    reply, said = None, []
-    async for msg in query(prompt=messages(), options=options):
-        if isinstance(msg, AssistantMessage):
-            for block in msg.content:
-                if isinstance(block, ToolUseBlock):
-                    session.status(block.name.removeprefix(f"mcp__{SERVER}__").replace("_", " "))
-                elif getattr(block, "text", None):
-                    said.append(block.text)
-        elif isinstance(msg, ResultMessage):
-            if msg.subtype == "success" and msg.result:
-                reply = msg.result
-            elif msg.is_error:
-                reply = reply or f"Sorry, I couldn't finish that ({msg.subtype})."
-    return (reply or (said[-1] if said else "") or "Done.").strip()
+    def __init__(self, system: str) -> None:
+        self.system = system
+        self.session = None          # the current phone session, for status updates
+        self.client = None
+        self.loop = asyncio.new_event_loop()
+        self.thread = threading.Thread(target=self.loop.run_forever, daemon=True, name="max-brain")
+        self.thread.start()
+        self._ready = self._submit(self._connect())  # warm up now, while the user is still looking
 
+    def _submit(self, coro):
+        return asyncio.run_coroutine_threadsafe(coro, self.loop)
 
-def think(text: str, history: list[dict], screenshot_png: bytes | None, system: str, session) -> str:
-    """Called from Brain.handle (a worker thread): returns the reply to speak."""
-    try:
-        import claude_agent_sdk  # noqa: F401
-    except ImportError:
-        return "The Max brain needs one more install: pip install claude-agent-sdk"
-    earlier = "\n".join(f"{'User' if m['role'] == 'user' else 'You'}: {m['content']}" for m in history[-10:])
-    prompt_text = (f"Earlier in this call:\n{earlier}\n\nNow the user says: {text}" if earlier else text)
-    session.status("Thinking...")
-    return asyncio.run(_run(prompt_text, screenshot_png, system, session))
+    async def _connect(self) -> None:
+        from claude_agent_sdk import ClaudeSDKClient
+        self.client = ClaudeSDKClient(options=_options(self.system))
+        await self.client.connect()
+
+    def ask(self, text: str, screenshot_png: bytes | None, session, timeout: float = 180) -> str:
+        """Called from Brain.handle (a worker thread). Returns the reply to speak."""
+        self.session = session
+        session.status("Thinking...")
+        for attempt in (1, 2):
+            try:
+                self._ready.result(timeout=60)
+                return self._submit(self._ask(text, screenshot_png)).result(timeout=timeout)
+            except Exception as e:  # noqa: BLE001
+                msg = str(e)
+                if "authenticate" in msg.lower() or "login" in msg.lower():
+                    return "I can't reach Claude: the Claude Code login on this PC has expired. " + LOGIN_HELP
+                if attempt == 2:
+                    return f"Sorry, the brain stopped working ({type(e).__name__}). Please try again."
+                self._ready = self._submit(self._connect())  # the process died: start a fresh one
+        return "Sorry, something went wrong."
+
+    async def _ask(self, text: str, screenshot_png: bytes | None) -> str:
+        from claude_agent_sdk import AssistantMessage, ResultMessage, ToolUseBlock
+
+        content: list[dict] = []
+        if screenshot_png:
+            content.append({"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                                         "data": base64.b64encode(screenshot_png).decode()}})
+        content.append({"type": "text", "text": text})
+
+        async def messages():
+            yield {"type": "user", "message": {"role": "user", "content": content},
+                   "parent_tool_use_id": None, "session_id": "default"}
+
+        await self.client.query(messages())
+        reply, said = None, []
+        async for msg in self.client.receive_response():
+            if isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, ToolUseBlock):
+                        self.session.status(block.name.removeprefix(f"mcp__{SERVER}__").replace("_", " "))
+                    elif getattr(block, "text", None):
+                        said.append(block.text)
+            elif isinstance(msg, ResultMessage):
+                if msg.subtype == "success" and msg.result:
+                    reply = msg.result
+                elif msg.is_error and not reply:
+                    errors = " ".join(str(x) for x in (getattr(msg, "errors", None) or []))
+                    raise RuntimeError(f"{msg.subtype} {msg.result or ''} {errors}".strip())
+        return (reply or (said[-1] if said else "") or "Done.").strip()
+
+    def close(self) -> None:
+        """Called when the call ends: stop the Claude Code process."""
+        try:
+            if self.client:
+                self._submit(self.client.disconnect()).result(timeout=10)
+        except Exception:  # noqa: BLE001
+            pass
+        self.loop.call_soon_threadsafe(self.loop.stop)
