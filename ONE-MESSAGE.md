@@ -4,24 +4,24 @@ Copy everything between the lines into the group chat. It contains the idea,
 the area list, what to install, and the two prompts that make their AI
 download the project, set it up, and start their first task.
 
-The only thing that can't be instant: the repo is private, so each person
-needs an invite. They send you their GitHub username in step 1; you invite
-them (GitHub -> repo -> Settings -> Collaborators, or ask Claude), and from the
-moment they accept, the rest runs by itself.
+The repo is public, so they can download it at once. Their comment on the
+"Join the team" issue gives you their GitHub name and area choice. Then run
+`python team/invite.py --invite --assign` (or ask Claude): it adds them as
+collaborators and writes their names into CLAUDE.md and TASKS.md.
 
 ```
 ------------------------------------------------
 HACKATHON: "HomeCall". An app on your home PC you can CALL from your phone when you're away: you see the PC's screen live, say "find my CV and send it to me", and the AI on the PC does it and answers out loud. The skeleton already runs. We build the real thing in 2 days, 5 people, each owning ONE area, everyone's AI following the same rules file. Project: https://github.com/Rokasxz/homecall
 
-STEP 1: REPLY NOW with one line (keep the format):
-NAME: ___ | GITHUB: ___ | AREA: 1st choice __, 2nd choice __ | AI TOOL: Claude Code / Codex / ChatGPT web | PHONE: iPhone / Android | PC: Windows / Mac
-Areas (one owner each, first come first served):
+STEP 1: JOIN (30 seconds): open https://github.com/Rokasxz/homecall/issues/1 and comment ONE line, like:
+AREA: 3 (2nd choice: 2) | AI: Codex | PHONE: Android | PC: Windows
+Areas (one owner each, first come first served by comment time):
   2 Hands: the Python functions the AI can use on the PC (files, apps, keyboard)
   3 Brain: the Claude API loop (what you say -> tool calls -> spoken reply)
   4 Phone app: the web page on the phone (live view, mic, speaker, cards)
   5 Voice: speech-to-text and text-to-speech on the PC
   (1 Server & connection is mine)
-GITHUB = the name in your profile address github.com/<that>. No account? github.com, free, 2 minutes. I'll invite you to the project; ACCEPT the invite email.
+No GitHub account? github.com, free, 2 minutes. I add you to the project from your comment; accept the invite email when it comes. You don't need to wait for it to do steps 2-4.
 
 STEP 2: INSTALL (while you wait for the invite):
   - Git: git-scm.com (Windows: "Git for Windows", keep defaults)
