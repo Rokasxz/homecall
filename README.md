@@ -9,6 +9,25 @@ sent back. A 2-day hackathon project.
 - Teammates start here: TEAMMATE-GUIDE.md (login, rules, prompts, testing)
 - How we work together: TEAM-SETUP.md, PROMPTS.md
 
+## Connect your own computer (one command)
+
+After the install steps below, run:
+```
+python start.py
+```
+It starts the app, opens a tunnel so your phone can reach your computer from anywhere,
+points YOUR voice agent at it (if `ELEVENLABS_API_KEY` is in your `.env`), and prints:
+the phone address, the voice-call address (`/voice/call`, Safari), and the pairing code.
+Keep the window open; Ctrl+C stops everything. Use it to test on your own PC and find bugs
+(GitHub -> Issues -> New issue -> Bug).
+- **Real AI on your PC:** `HOMECALL_BRAIN=max` in `.env`, `pip install claude-agent-sdk`,
+  and `claude auth login` once (needs your own Claude subscription). Otherwise it runs in
+  echo mode (no AI).
+- **Voice on your PC:** ask Rokas privately for the ElevenLabs key, put it in `.env` as
+  `ELEVENLABS_API_KEY=...`; `start.py` creates your own voice agent the first time.
+- **Needs** `cloudflared` (Mac `brew install cloudflared`, Windows
+  `winget install Cloudflare.cloudflared`). If your Wi-Fi blocks it, use your phone's hotspot.
+
 ## Run it (on the PC)
 
 Needs Python 3.11 or newer.
