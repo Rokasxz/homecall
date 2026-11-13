@@ -86,3 +86,23 @@ terminal-guard tests in `test_safety.py`.
 **Update after #12, #13, #14 merged:** gaps #3, #8, #9 are fixed in main; their
 tests are now normal tests that must stay green. Main: 106 passed, 3 known gaps
 left (lead: lockout, second phone; Voice + lead: /voice without the code).
+
+---
+
+# Safety pass #4 — Hands "done" check (2026-11-13, evening)
+
+Tested: main + Hands #18 (Mac terminal guard, Mac media keys) + Hands #20
+(click_at). All green: main 107, #18 108, #20 122 passed (with the new
+`tests/test_pointer.py`). Mac AppleScript is faked in tests now, so tests never
+play real music.
+
+| # | Finding | Who | Status |
+|---|---|---|---|
+| 4 | Terminal guard on Mac | Hands | **Built in #18**, but **fails open**: if macOS denies Automation → System Events, it can't tell Terminal is in front and Enter runs with no Yes/No. Posted on #18. |
+| 12 | Mac script types not in the program list | Hands | **Fixed in #18/#20** |
+| 13 | **A click skips every Yes/No** (`click_at` can press Send / Delete / Buy / Allow in any app) | Hands | New, medium. Suggested: `click_at(x, y, what)` asks first for risky words. Posted on #20. |
+| 14 | The max Brain didn't pass the screenshot (Mantas's demo run), so "what's on my screen?" and click_at can't work | Brain (lead) | Reported by Mantas in TASKS.md; check after #17 |
+
+For the pitch: files are locked to 4 folders and dangerous file actions ask
+first, but keyboard and mouse act like a person at the PC. A real product
+needs per-app permissions.
