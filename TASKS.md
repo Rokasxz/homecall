@@ -12,18 +12,28 @@ The "Start prompt" is what you paste into your AI after the kickoff prompt
 - [ ] Day 2, [time]: FEATURE FREEZE
 - [ ] Day 2: demo practised twice on the real laptop + phone
 
-## Rokas, lead: Server & connection (`pc/server.py`, `pc/screen.py`, `pc/session.py`, shared files)
+## Rokas, lead: integration, shared files, demo (`check.py`, `team/`, README, requirements.txt, CLAUDE.md)
+Start prompt: "Read PLAN.md and CLAUDE.md. I'm the lead. Task: after each merge
+into main, pull it, run python check.py and the demo path, and run the
+integration check (PROMPTS.md 9b). Keep main runnable; tell me who needs to fix what."
+- [x] Skeleton, rules, repo, invites (done before the hackathon)
+- [ ] Hour 1: everyone's check.py passes; names filled in; areas confirmed
+- [ ] Integration check after every merge (PROMPTS.md 9b); keep `main` runnable
+- [ ] Review Pull Requests (TEAMMATE-GUIDE.md, prompt O): files inside the owner's area, check.py passes
+- [ ] Approve or refuse new libraries (requirements.txt)
+- [ ] Day 2: demo laptop prepared (fake CV on Desktop, a draft to "delete", permissions granted); demo script; call the feature freeze
+Needs from others: everyone: merge small pieces every 1-2 hours.
+
+## nojuzaid-spec: Server & connection (`pc/server.py`, `pc/screen.py`, `pc/session.py`)
 Start prompt: "Read PLAN.md and CLAUDE.md. My area is Server & connection. Task:
 run the app, then make the live view feel smoother: only send a screen frame
 when the screen actually changed (compare with the previous JPEG), and let me
 tune frame rate and JPEG quality from .env. Don't change the message contract."
-- [x] Skeleton runs end to end in echo mode (done before the hackathon)
 - [ ] Install cloudflared, start the tunnel, open the https address on a phone over mobile data
 - [ ] Only send a frame when the screen changed; tune size/quality for mobile
 - [ ] Reconnect-friendly: a second `hello` with the right code replaces the old call
 - [ ] Lockout after 5 wrong codes (cheap security win)
-- [ ] Integration check after every merge (PROMPTS.md 9b); keep `main` runnable
-- [ ] Day 2: demo laptop prepared (fake CV on Desktop, a draft to "delete", permissions granted)
+- [ ] Venue test: does the tunnel work on the hackathon Wi-Fi? If not: phone hotspot, or Tailscale
 Needs from others: Phone: reconnect automatically when the socket drops.
 
 ## Mantas: Hands (`pc/actions/`)
@@ -56,7 +66,7 @@ runs find_file and send_file_to_phone in one go without asking questions."
 - [ ] Stretch: computer-use toolset (`computer_toolset_20260801`) so the AI can click on the screen itself
 Needs from others: Hands: clear docstrings; Server: screenshot of the right monitor.
 
-## [Name 4]: Phone app (`phone/`)
+## Matuuunej: Phone app (`phone/`)
 Start prompt: "Read PLAN.md and CLAUDE.md, especially contract section 1. My
 area is Phone app. Task: run the app, open http://localhost:8000 in the laptop
 browser, then make it look and feel like a phone call: full-screen live view,

@@ -57,7 +57,7 @@ Reply to this message with your line filled in. Keep the format (one line) so I 
 NAME: ___ | GITHUB: ___ | AREA: 1st choice __, 2nd choice __ | AI TOOL: Claude Code / Codex / ChatGPT web | PHONE: iPhone / Android | PC: Windows / Mac
 
 Areas (one owner each, first come first served):
-1 Server & connection: taken by me
+1 Server & connection: taken
 2 Hands: the Python functions the AI can use on the PC (files, apps, keyboard)
 3 Brain: the Claude API loop (what you say -> tool calls -> spoken reply)
 4 Phone app: the web page on the phone (live view, mic, speaker, cards)

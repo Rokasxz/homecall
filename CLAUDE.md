@@ -21,10 +21,11 @@ section of TASKS.md.
 
 | Area                    | Files                                                     | Owner           |
 |-------------------------|-----------------------------------------------------------|-----------------|
-| Server & connection     | `pc/server.py`, `pc/screen.py`, `pc/session.py`, `check.py`, and every shared file (README, requirements.txt, CLAUDE.md, .env.example) | Rokas (lead) |
+| Lead: integration, shared files | `check.py`, `team/`, README, requirements.txt, CLAUDE.md, .env.example; merges, reviews, demo | Rokas |
+| Server & connection     | `pc/server.py`, `pc/screen.py`, `pc/session.py`           | nojuzaid-spec   |
 | Hands (what the AI can do) | `pc/actions/`                                          | Mantas        |
 | Brain (the AI loop)     | `pc/brain/`                                               | [Name 3]        |
-| Phone app               | `phone/`                                                  | [Name 4]        |
+| Phone app               | `phone/`                                                  | Matuuunej       |
 | Voice (speech in and out) | `pc/voice/`                                             | [Name 5]        |
 
 ## Rules for the AI (Claude, Codex, or any other)

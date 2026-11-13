@@ -20,7 +20,7 @@ Areas (one owner each, first come first served by comment time):
   3 Brain: the Claude API loop (what you say -> tool calls -> spoken reply)
   4 Phone app: the web page on the phone (live view, mic, speaker, cards)
   5 Voice: speech-to-text and text-to-speech on the PC
-  (1 Server & connection is mine)
+  (1 Server & connection: taken)
 No GitHub account? github.com, free, 2 minutes. I add you to the project from your comment; accept the invite email when it comes. You don't need to wait for it to do steps 2-4.
 
 STEP 2: INSTALL (while you wait for the invite):
