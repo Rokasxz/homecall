@@ -36,10 +36,13 @@ Stop it any time by saying "stop the coordinator".
 4. **Shout only when it matters**: add a comment on the status issue (which
    notifies people) only if `main` broke, someone is blocked, or a PR has waited
    over an hour. Otherwise just update the body.
-5. **Sort new bugs** (the Bug form, `.github/ISSUE_TEMPLATE/bug.md`): `gh issue list`.
-   For each new issue from a collaborator, comment once: whose area it is (CLAUDE.md
-   "Who owns what", mention them), and what's missing to reproduce it. If it contains
-   the tunnel address, the pairing code or a key, don't repeat it: tell Rokas to edit it out.
+5. **Sort new bugs** (the Bug form adds the label `bug`): `gh issue list --label bug`.
+   For each new bug from a collaborator, comment once: whose area it is, with an
+   @mention (Server/Brain = Rokasxz, Hands = mantas1001, Phone app = Matuuunej,
+   Voice + Tests/Demo = nojuzaid-spec), a link to a fix PR if one exists, and what's
+   missing to reproduce it. Keep an **Open bugs** list in #8 (number, one line, owner).
+   If a bug contains the tunnel address, the pairing code or a key, never repeat it:
+   reply asking the author to delete it (and tell Rokas, who can edit it out).
 6. **Report to Rokas** in two or three lines: what changed, what's waiting for him.
 
 ## Keep it useful, not noisy
