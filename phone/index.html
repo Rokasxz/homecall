@@ -10,9 +10,16 @@
   <!-- Screen 1: pairing -->
   <section id="connect" class="screen">
     <h1>HomeCall</h1>
-    <p>Enter the code shown on your PC.</p>
+    <p>Enter the code shown on your PC, then choose how to talk.</p>
     <input id="code" inputmode="numeric" maxlength="6" placeholder="123456" autocomplete="one-time-code">
-    <button id="callBtn" class="big">Call my PC</button>
+    <button id="voiceBtn" class="big choice">
+      <span class="choice-title" data-label="📞 Voice call">📞 Voice call</span>
+      <span class="choice-sub">Talk like a phone call. Interrupt it any time.</span>
+    </button>
+    <button id="callBtn" class="big choice secondary">
+      <span class="choice-title" data-label="⌨️ Type">⌨️ Type</span>
+      <span class="choice-sub">Write what you want and watch the live screen.</span>
+    </button>
     <p id="connectError" class="error"></p>
   </section>
 

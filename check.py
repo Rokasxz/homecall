@@ -172,12 +172,22 @@ def free_port():
 
 
 async def fake_call(port, code):
+    import urllib.error
     import urllib.request
     import websockets
 
     base = f"http://127.0.0.1:{port}"
     html = urllib.request.urlopen(base + "/").read().decode()
     (ok if "<html" in html.lower() else fail)("phone page is served")
+    info = json.loads(urllib.request.urlopen(base + "/pc/info").read().decode())
+    (ok if info.get("code") == code else fail)("PC window opens on this computer (QR code + code)")
+    refused = 0
+    for headers in ({"Cf-Connecting-Ip": "1.2.3.4"}, {"Host": "abc.trycloudflare.com"}, {"X-Forwarded-For": "1.2.3.4"}):
+        try:
+            urllib.request.urlopen(urllib.request.Request(base + "/pc/info", headers=headers))
+        except urllib.error.HTTPError as e:
+            refused += e.code == 404
+    (ok if refused == 3 else fail)("PC window is refused through the tunnel (it shows the code)", f"{refused}/3")
     async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as ws:
         await ws.send(json.dumps({"type": "hello", "code": "000000"}))
         msg = json.loads(await asyncio.wait_for(ws.recv(), 5))

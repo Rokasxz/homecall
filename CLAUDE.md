@@ -54,6 +54,8 @@ section of TASKS.md.
 - If your change touches the contract below, update it in the same change and
   tell the person to warn the team.
 - Never put an API key in code or in a committed file. It lives in `.env` (gitignored).
+  The team's keys live in the PRIVATE repo Rokasxz/homecall-keys; `python start.py` copies
+  them into `.env` by itself. Never ask a teammate to paste a key, never copy them anywhere.
 
 ## How the parts talk to each other (the "contract")
 Change this only when the whole team agrees, and in the same Pull Request as the code.
@@ -130,6 +132,8 @@ and the Hands are unchanged):
 - `POST /voice/call/start {"code": "123456"}` -> `{"signed_url": ..., "token": ...}`
   (5 wrong codes = 60 s lock).
 - `GET /voice/call/files?token=...` -> files sent during that call.
+- `GET /voice/call/screen?token=...` -> the live PC screen (one JPEG; the call page
+  asks again about every 0.6 s).
 - `POST /voice/llm/<secret>/chat/completions` -> OpenAI-style streaming endpoint that
   ElevenLabs calls; it forwards to the team Brain. `<secret>` = `HOMECALL_AGENT_SECRET`.
 - Keys in `.env` (never committed): `ELEVENLABS_API_KEY`, `ELEVENLABS_AGENT_ID`,

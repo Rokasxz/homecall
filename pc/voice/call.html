@@ -16,12 +16,14 @@
   button { width:100%; font-size:20px; padding:16px; margin-top:12px; border:0; border-radius:14px; color:#fff;
            background:var(--accent); font-weight:600; }
   button.end { background:var(--red); }
-  #orb { width:160px; height:160px; border-radius:50%; margin:28px auto; background:#222833; transition:all .3s; }
+  #screen { display:block; width:100%; aspect-ratio:16/10; object-fit:contain; background:#000; border-radius:12px; margin-top:12px; }
+  #orb { width:72px; height:72px; border-radius:50%; margin:16px auto; background:#222833; transition:all .3s; }
   #orb.listening { background:var(--green); box-shadow:0 0 0 12px rgba(34,197,94,.15); }
   #orb.speaking { background:var(--accent); box-shadow:0 0 0 18px rgba(59,130,246,.18); animation:pulse 1s infinite; }
   @keyframes pulse { 50% { transform:scale(1.06); } }
   #state { text-align:center; color:var(--muted); min-height:24px; }
   #err { color:var(--red); min-height:24px; margin-top:10px; text-align:center; }
+  .switch { display:block; text-align:center; margin-top:18px; color:var(--muted); font-size:16px; }
   #log { margin-top:16px; display:flex; flex-direction:column; gap:8px; }
   .msg { padding:10px 12px; border-radius:12px; background:var(--card); }
   .msg.me { align-self:flex-end; background:#243248; }
@@ -36,10 +38,12 @@
 
   <div id="start">
     <input id="code" inputmode="numeric" maxlength="6" placeholder="123456" autocomplete="one-time-code">
-    <button id="callBtn">Call my PC</button>
+    <button id="callBtn" data-label="📞 Call my PC">📞 Call my PC</button>
+    <a class="switch" href="/">⌨️ Type instead</a>
   </div>
 
   <div id="incall" class="hidden">
+    <img id="screen" alt="Loading your screen...">
     <div id="orb"></div>
     <div id="state">Connecting...</div>
     <button id="endBtn" class="end">Hang up</button>
@@ -50,10 +54,22 @@
 </div>
 
 <script type="module">
-  import { Conversation } from "https://cdn.jsdelivr.net/npm/@elevenlabs/client@1.32.1/+esm";
+  // The voice library comes from a CDN. Load it in the background: if it's blocked or slow,
+  // the Call button still works (live screen + a clear message) instead of doing nothing.
+  let Conversation = null, libError = null;
+  const libReady = import("https://cdn.jsdelivr.net/npm/@elevenlabs/client@1.32.1/+esm")
+    .then((m) => { Conversation = m.Conversation; })
+    .catch((e) => { libError = e; });
+  const NO_REACH = "Can't reach your PC. Open the newest address (it changes when the PC restarts) " +
+                   "and check HomeCall still runs on the PC. Still stuck? Switch between Wi-Fi and mobile data.";
 
   const $ = (id) => document.getElementById(id);
   let conversation = null, token = null, filesTimer = null;
+
+  // Came from the start screen? The code is already filled in: one tap starts the call.
+  // (A tap is needed anyway: phones only play sound after the user taps on this page.)
+  const CODE_KEY = "homecallCode";
+  try { const saved = sessionStorage.getItem(CODE_KEY); if (saved) $("code").value = saved; } catch (_) {}
   const seenFiles = new Set();
 
   function show(inCall) { $("start").classList.toggle("hidden", inCall); $("incall").classList.toggle("hidden", !inCall); }
@@ -61,6 +77,18 @@
     if (!text) return;
     const d = document.createElement("div"); d.className = "msg" + (me ? " me" : ""); d.textContent = text;
     $("log").prepend(d);
+  }
+
+  // Long tasks: the voice says "On it" quickly; when the result (or a Yes/No question)
+  // is ready, nudge the voice so it says it without the user having to ask.
+  let lastNudge = 0;
+  async function pollNews() {
+    if (!conversation || !token || Date.now() - lastNudge < 4000) return;
+    try {
+      const r = await fetch("/voice/call/news?token=" + encodeURIComponent(token));
+      const d = await r.json();
+      if (d.news) { lastNudge = Date.now(); conversation.sendUserMessage("(PC update)"); }
+    } catch (_) { /* try again next time */ }
   }
 
   async function pollFiles() {
@@ -81,24 +109,51 @@
     $("err").textContent = "";
     const code = $("code").value.trim();
     if (code.length !== 6) { $("err").textContent = "The code has 6 digits."; return; }
+    // 1) Check the code and get the call token. 2) Show the live screen right away.
+    // 3) Then start the voice part; if the mic or the voice service fails, keep the
+    //    screen and say what's wrong instead of hiding everything.
+    try { sessionStorage.setItem(CODE_KEY, code); } catch (_) {}  // for "Type instead"
+    const btn = $("callBtn");
+    btn.disabled = true; btn.textContent = "Calling your PC...";  // show right away that the tap worked
+    const stop = new AbortController();
+    const timer = setTimeout(() => stop.abort(), 15000);         // some networks never answer
+    let r, data;
     try {
-      await navigator.mediaDevices.getUserMedia({ audio: true });  // ask for the mic first
+      r = await fetch("/voice/call/start", { method: "POST", headers: { "Content-Type": "application/json" },
+                                             body: JSON.stringify({ code }), signal: stop.signal });
+      data = await r.json().catch(() => ({}));
     } catch (e) {
-      $("err").textContent = "Microphone blocked. Allow it (Safari: aA -> Website Settings), or open this page in Safari, not inside Instagram.";
+      $("err").textContent = NO_REACH;
       return;
+    } finally {
+      clearTimeout(timer); btn.disabled = false; btn.textContent = btn.dataset.label;
     }
-    const r = await fetch("/voice/call/start", { method: "POST", headers: { "Content-Type": "application/json" },
-                                                 body: JSON.stringify({ code }) });
-    const data = await r.json().catch(() => ({}));
     if (!r.ok) { $("err").textContent = data.detail || ("Error " + r.status); return; }
     token = data.token;
     show(true);
+    loadScreen();
+    filesTimer = setInterval(() => { pollFiles(); pollNews(); }, 1500);
+    $("state").textContent = "Starting the voice...";
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true });  // ask for the mic
+    } catch (e) {
+      $("state").textContent = "No microphone: you can watch the screen, but not talk.";
+      $("err").textContent = "Microphone blocked. Allow it (Safari: aA -> Website Settings -> Microphone), or open this page in Safari, not inside Instagram/Discord. Then tap Hang up and call again.";
+      return;
+    }
+    await libReady;
+    if (!Conversation) {
+      $("state").textContent = "The voice didn't load (the screen still works).";
+      $("err").textContent = "Couldn't download the voice part (cdn.jsdelivr.net): " + (libError && libError.message ? libError.message : libError) +
+                             ". Try mobile data instead of this Wi-Fi.";
+      return;
+    }
     try {
       conversation = await Conversation.startSession({
         signedUrl: data.signed_url,
         onConnect: () => { $("state").textContent = "Connected. Just talk."; },
-        onDisconnect: () => { $("state").textContent = "Call ended."; $("orb").className = ""; clearInterval(filesTimer); },
-        onError: (e) => { $("err").textContent = "Call error: " + (e && e.message ? e.message : e); },
+        onDisconnect: () => { $("state").textContent = "Voice ended. Tap Hang up, then call again."; $("orb").className = ""; },
+        onError: (e) => { $("err").textContent = "Voice error: " + (e && e.message ? e.message : e); },
         onModeChange: (m) => {
           const mode = m && m.mode ? m.mode : m;
           $("orb").className = mode === "speaking" ? "speaking" : "listening";
@@ -106,21 +161,29 @@
         },
         onMessage: (m) => {
           const text = m && (m.message || m.text);
+          if (text === "(PC update)") return;  // our own nudge, not something the user said
           const me = m && (m.source === "user" || m.role === "user");
           addLog(text, me);
         },
       });
-      filesTimer = setInterval(pollFiles, 2000);
     } catch (e) {
-      show(false);
-      $("err").textContent = "Couldn't start the call: " + (e && e.message ? e.message : e);
+      $("state").textContent = "The voice didn't start (the screen still works).";
+      $("err").textContent = "Couldn't start the voice: " + (e && e.message ? e.message : e);
     }
   };
 
   $("endBtn").onclick = async () => {
     try { if (conversation) await conversation.endSession(); } catch (_) {}
-    conversation = null; clearInterval(filesTimer); show(false);
+    conversation = null; token = null; clearInterval(filesTimer); show(false);
   };
+
+  // Live PC screen during the call: load the next picture as soon as the last one arrived.
+  function loadScreen() {
+    if (!token) return;
+    const img = $("screen");
+    img.onload = img.onerror = () => { if (token) setTimeout(loadScreen, 600); };
+    img.src = "/voice/call/screen?token=" + encodeURIComponent(token) + "&t=" + Date.now();
+  }
 </script>
 </body>
 </html>

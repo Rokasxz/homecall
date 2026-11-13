@@ -19,9 +19,11 @@ from pc.actions.power import TOOLS as _power_tools
 from pc.actions.extras import TOOLS as _extra_tools
 from pc.actions.search import TOOLS as _search_tools
 from pc.actions.clipboard import TOOLS as _clipboard_tools
+from pc.actions.system import TOOLS as _system_tools
 
 # Every tool the Brain can use, from all the files in this folder.
-TOOLS = _basic_tools + _media_tools + _power_tools + _pointer_tools + _extra_tools + _search_tools + _clipboard_tools
+TOOLS = (_basic_tools + _media_tools + _power_tools + _pointer_tools + _extra_tools + _search_tools
+         + _clipboard_tools + _system_tools)
 
 # The Brain sets this before it runs the tools, so tools can talk to the phone
 # (progress text, confirmations, sending files). See pc/session.py.

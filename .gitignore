@@ -16,6 +16,7 @@ __pycache__/
 
 # Files the app creates while running
 pc/outbox/
+homecall.log
 
 # Usual junk
 .DS_Store

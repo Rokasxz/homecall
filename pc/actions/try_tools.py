@@ -13,6 +13,8 @@
                                             test file to the Recycle Bin, and changes the volume while muted
                                             (then puts it back exactly)
     python -m pc.actions.try_tools --files  also a real clipboard round trip (what you had copied is put back)
+    python -m pc.actions.try_tools --system also a real screenshot (size checked, then deleted) and
+                                            show_desktop: all windows minimize ~3 s, then come back
 
 Nothing real is deleted: the only thing removed at the end is the temporary
 test folder this script made itself, and its own copies in pc/outbox.
@@ -30,7 +32,7 @@ import zipfile
 from pathlib import Path
 
 import pc.actions as actions
-from pc.actions import basic, clipboard, extras, media, pointer, power, search
+from pc.actions import basic, clipboard, extras, media, pointer, power, search, system
 
 RESULTS: list[tuple[bool, str]] = []
 
@@ -418,12 +420,33 @@ def safe_tests(tmp: Path) -> None:
     finally:
         media.IS_MAC, media._osascript = real_mac, real_osa
     real_mac_b = basic.IS_MAC
-    basic.IS_MAC = True
+    basic.IS_MAC = True  # pretend to be a Mac; osascript doesn't exist here = "macOS didn't answer"
+    pressed: list = []
+    real_gui = sys.modules.get("pyautogui")
+    sys.modules["pyautogui"] = types.SimpleNamespace(hotkey=lambda *k: pressed.append(k), KEYBOARD_KEYS=None,
+                                                     typewrite=lambda t, interval=0: pressed.append(t))
     try:
-        r = basic._foreground_exe()  # osascript doesn't exist here: must return "" and not crash
-        check("Mac terminal check never crashes without osascript", repr(r), isinstance(r, str))
+        r = basic._foreground_exe()
+        check("Mac: when macOS won't say which app is in front, it's 'unknown' (no crash)", repr(r), r == "unknown")
+        check("Mac: 'unknown' counts like a terminal", str(basic._terminal_in_front()), basic._terminal_in_front())
+        actions.current_session = None
+        r = basic.press_keys("enter")
+        check("Mac: Enter with an unknown app in front and no phone is refused", r,
+              r.startswith("Cancelled") and not pressed)
+        phone = FakeSession(answer=False)
+        actions.current_session = phone
+        r = basic.type_text("rm -rf ~/Documents\n")
+        check("Mac: typing a line + Enter asks 'I can't tell which app is in front'; 'No' = nothing typed", r,
+              r.startswith("Cancelled") and "can't tell" in r and not pressed)
+        r = basic.press_keys("ctrl+c")
+        check("Mac: keys without Enter don't ask", r, r.startswith("Pressed") and pressed == [("ctrl", "c")])
     finally:
         basic.IS_MAC = real_mac_b
+        actions.current_session = None
+        if real_gui is not None:
+            sys.modules["pyautogui"] = real_gui
+        else:
+            sys.modules.pop("pyautogui", None)
     check("Mac script files count as programs", "x.terminal, y.scpt",
           basic._is_program(Path("x.terminal")) and basic._is_program(Path("y.scpt")))
     check("Mac Terminal counts as a terminal", "terminal, iterm2",
@@ -562,6 +585,38 @@ def safe_tests(tmp: Path) -> None:
             check("an app that isn't open gives an error", r, r.startswith("Error"))
         finally:
             extras._windows = real_windows
+
+    print("\npc_status / send_screenshot_to_phone (screen faked here)")
+    r = system.pc_status()
+    check("pc_status tells disk space, time since restart and the time", r,
+          "GB free of" in r and "since the last restart" in r and "Time on the PC" in r and "::" not in r)
+    for secs, expect in ((90, "1 min"), (3 * 3600 + 120, "3 h 2 min"), (2 * 86400 + 5 * 3600, "2 day(s) 5 h")):
+        check(f"{secs} s reads as '{expect}'", system._duration(secs), system._duration(secs) == expect)
+    from pc import screen as server_screen
+    from PIL import Image
+    import io
+    fake_png = io.BytesIO()
+    Image.new("RGB", (2880, 1800), (30, 120, 200)).save(fake_png, "JPEG")
+    real_capture, real_error = server_screen.capture_jpeg, server_screen.LAST_ERROR
+    server_screen.capture_jpeg = lambda max_width=960, quality=55: fake_png.getvalue()
+    server_screen.LAST_ERROR = None
+    phone = FakeSession(answer=False)
+    actions.current_session = phone
+    try:
+        r = system.send_screenshot_to_phone()
+        cards = [e for e in phone.sent if e.get("type") == "file"]
+        tok = cards[0]["url"].rsplit("/", 1)[-1] if cards else ""
+        shots = list(basic.OUTBOX.glob(f"{tok}__*")) if tok else []
+        check("sends one 'file' card named 'screenshot <date>.jpg'", r,
+              r.startswith("Sent a screenshot") and len(shots) == 1 and cards[0]["name"].startswith("screenshot "))
+        for s in shots:
+            s.unlink()
+        server_screen.LAST_ERROR = "no permission"
+        r = system.send_screenshot_to_phone()
+        check("says so when the screen can't be captured", r, r.startswith("Error") and "no permission" in r)
+    finally:
+        server_screen.capture_jpeg, server_screen.LAST_ERROR = real_capture, real_error
+        actions.current_session = None
 
     print("\nclipboard (no real reading here; the real round trip is under --files)")
     actions.current_session = FakeSession(answer=False)
@@ -1107,6 +1162,45 @@ def files_tests() -> None:
           clipboard.read_clipboard_text() == before)
 
 
+def system_tests() -> None:
+    """Real screenshot (only its size is checked, then it's deleted) and show_desktop + undo."""
+    print("\n--system: a real screenshot and show_desktop (all windows minimize for ~3 seconds, then come back)")
+    phone = FakeSession(answer=False)
+    actions.current_session = phone
+    try:
+        r = system.send_screenshot_to_phone()
+    finally:
+        actions.current_session = None
+    cards = [e for e in phone.sent if e.get("type") == "file"]
+    tok = cards[0]["url"].rsplit("/", 1)[-1] if cards else ""
+    shots = list(basic.OUTBOX.glob(f"{tok}__*")) if tok else []
+    size = ""
+    if shots:
+        from PIL import Image
+        with Image.open(shots[0]) as im:
+            size = f"{im.size[0]}x{im.size[1]}"
+        left, top, w, h = pointer._main_screen()
+        for s in shots:
+            s.unlink()  # never kept or shown: only its size was looked at
+    check("the screenshot is full size (same as the screen)", f"{r} {size}", bool(shots) and size == f"{w}x{h}")
+    if sys.platform != "win32":
+        return
+    import ctypes
+    user32 = ctypes.windll.user32
+
+    def minimized() -> int:
+        return sum(1 for w in extras._windows() if user32.IsIconic(w["hwnd"]))
+    before = minimized()
+    r = system.show_desktop()
+    time.sleep(1.5)
+    during = minimized()
+    r2 = system.show_desktop(undo=True)
+    time.sleep(1.5)
+    after = minimized()
+    check("show_desktop minimizes the windows", f"{r} (minimized: {before} -> {during})", during > before)
+    check("show_desktop(undo=True) brings them back", f"{r2} (minimized now: {after})", after <= before)
+
+
 def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="HomeCallTest_"))
     print(f"HomeCall tools test on {platform.system()} {platform.release()} (temporary folder: {tmp})")
@@ -1126,6 +1220,8 @@ def main() -> int:
             round2_tests()
         if "--files" in sys.argv:
             files_tests()
+        if "--system" in sys.argv:
+            system_tests()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)  # only the temporary folder made above
     failed = [label for ok, label in RESULTS if not ok]

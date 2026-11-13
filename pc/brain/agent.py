@@ -19,9 +19,11 @@ import os
 import threading
 
 import pc.actions as actions
+from pc.brain import brain_tools
 
 MODEL = os.environ.get("HOMECALL_MODEL", "claude-opus-5-5")  # "claude-sonnet-5-5" = faster and cheaper
 EFFORT = os.environ.get("HOMECALL_EFFORT", "medium")          # low = snappier, high = more careful
+API_ROUNDS = int(os.environ.get("HOMECALL_API_ROUNDS", "12"))  # most rounds of tool calls per request
 
 SYSTEM = """You are HomeCall, the voice assistant living on the user's home PC.
 The user is away from home, calling in from their phone. They see a live view of
@@ -75,6 +77,7 @@ class Brain:
         if self.mode == "api":
             import anthropic
             self.client = anthropic.Anthropic()
+            self.tools = _api_tools()
         elif self.mode == "max":
             try:
                 from pc.brain.max_backend import MaxBrain
@@ -111,46 +114,82 @@ class Brain:
 
     # ------------------------------------------------------------ real brain
     def _think(self, text: str, session, screenshot_png: bytes | None) -> str:
-        from anthropic import beta_tool
+        """Mode "api": Claude API with our own loop: ask Claude, run the tools it picks, repeat."""
+        import anthropic
 
-        tools = [beta_tool(f) for f in actions.TOOLS]  # Hands' functions -> AI tools
-
-        content: list[dict] = [{"type": "text", "text": text}]
+        content: list[dict] = []
         if screenshot_png:
-            content.insert(0, {
-                "type": "image",
-                "source": {"type": "base64", "media_type": "image/png",
-                           "data": base64.b64encode(screenshot_png).decode()},
-            })
+            content.append(_image(brain_tools.as_jpeg(screenshot_png)))
+        content.append({"type": "text", "text": text})
+        messages = self.history + [{"role": "user", "content": content}]
 
         session.status("Thinking...")
-        runner = self.client.beta.messages.tool_runner(
-            model=MODEL,
-            max_tokens=16000,
-            system=SYSTEM,
-            output_config={"effort": EFFORT},
-            tools=tools,
-            messages=self.history + [{"role": "user", "content": content}],
-            # If a safety filter declines, the API retries on a fallback model by itself.
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
-        )
-        final = None
-        for message in runner:  # one loop per round of tool calls
-            final = message
-            for block in message.content:
-                if block.type == "tool_use":
-                    session.status(f"{block.name} {_short(block.input)}")
+        reply = "I stopped because this took too many steps. Tell me what to do next."
+        for _ in range(API_ROUNDS):
+            try:
+                response = self.client.beta.messages.create(
+                    model=MODEL,
+                    max_tokens=16000,
+                    # Caching: the tools + rules are the same for every request (saved once, reused
+                    # cheaply), and each round of tool calls re-sends the same start of the conversation.
+                    system=[{"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}}],
+                    output_config={"effort": EFFORT},
+                    tools=self.tools,
+                    messages=messages,
+                    cache_control={"type": "ephemeral"},
+                    # If a safety filter declines, the API retries on a fallback model by itself.
+                    betas=["server-side-fallback-2026-07-01"],
+                    fallbacks="default",
+                )
+            except (anthropic.AuthenticationError, anthropic.PermissionDeniedError):
+                return "The Claude API key on this PC doesn't work. Check ANTHROPIC_API_KEY in the .env file."
+            except anthropic.RateLimitError:
+                return "Claude is too busy right now. Please try again in a minute."
+            except anthropic.APIConnectionError:
+                return "I can't reach Claude. Check this PC's internet connection."
+            except anthropic.BadRequestError as e:
+                if "credit" in str(e).lower():
+                    return "The Claude API account has run out of credits."
+                raise
 
-        reply = ""
-        if final is not None:
-            reply = " ".join(b.text for b in final.content if b.type == "text").strip()
-            if final.stop_reason == "refusal":
-                reply = reply or "I can't help with that one."
-        reply = reply or "Done."
+            said = " ".join(b.text for b in response.content if b.type == "text").strip()
+            if response.stop_reason == "refusal":
+                reply = said or "I can't help with that one."
+                break
+            messages.append({"role": "assistant", "content": response.content})  # thinking blocks included
+            if response.stop_reason == "pause_turn":
+                continue
+            calls = [b for b in response.content if b.type == "tool_use"]
+            if not calls or response.stop_reason == "max_tokens":
+                reply = said or "Done."
+                break
+            # All results go back in ONE message, in the order Claude asked.
+            messages.append({"role": "user", "content": [self._run_tool(c, session) for c in calls]})
 
         self._remember(text, reply)
         return reply
+
+    def _run_tool(self, call, session) -> dict:
+        """Run one tool Claude asked for. Never raises: errors go back to Claude as text."""
+        session.status(call.name.replace("_", " "))
+        args = call.input if isinstance(call.input, dict) else {}
+        result: dict = {"type": "tool_result", "tool_use_id": call.id}
+        try:
+            if call.name == brain_tools.LOOK_NAME:
+                result["content"] = [_image(brain_tools.look())]
+                return result
+            if call.name == brain_tools.ASK_NAME:
+                out = brain_tools.ask(session, args.get("question", ""))
+            elif call.name in HANDS:
+                out = str(HANDS[call.name](**args))
+            else:
+                out = f"Error: there is no tool called {call.name}."
+        except Exception as e:  # noqa: BLE001 - a broken tool must not end the call
+            out = f"Error: {type(e).__name__}: {e}"
+        result["content"] = out or "(no output)"
+        if out.startswith("Error") or out == brain_tools.NO_PHONE:
+            result["is_error"] = True
+        return result
 
     def _remember(self, text: str, reply: str) -> None:
         """Keep the conversation as plain text (no screenshots, no tool details), last 10 exchanges."""
@@ -168,6 +207,20 @@ class Brain:
         return f"Echo mode, no API key set. You said: {text}"
 
 
-def _short(d: dict, n: int = 60) -> str:
-    s = ", ".join(f"{k}={v}" for k, v in d.items())
-    return s if len(s) <= n else s[: n - 3] + "..."
+HANDS = {f.__name__: f for f in actions.TOOLS}  # tool name -> the Hands' function
+
+
+def _api_tools() -> list[dict]:
+    """Tool list for the API: every Hands function (from its type hints + docstring) + look/ask."""
+    from anthropic import beta_tool
+    return [beta_tool(f).to_dict() for f in actions.TOOLS] + [
+        {"name": brain_tools.LOOK_NAME, "description": brain_tools.LOOK_DESCRIPTION,
+         "input_schema": {"type": "object", "properties": {}}},
+        {"name": brain_tools.ASK_NAME, "description": brain_tools.ASK_DESCRIPTION,
+         "input_schema": brain_tools.ASK_SCHEMA},
+    ]
+
+
+def _image(jpg: bytes) -> dict:
+    return {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                        "data": base64.b64encode(jpg).decode()}}

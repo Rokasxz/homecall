@@ -33,6 +33,8 @@ from pc.voice import eleven
 
 router = APIRouter()
 TURN_TIMEOUT = 120         # seconds one answer may take before we give up
+QUICK_WAIT = 2.5          # seconds to wait for a fast answer before saying "on it" (ElevenLabs gives up fast)
+NEWS = "(PC update)"       # what the call page says when the PC has something new to say
 CONFIRM_TIMEOUT = 60       # seconds to wait for a spoken yes/no
 MAX_WRONG_CODES = 5
 LOCK_SECONDS = 60
@@ -128,6 +130,8 @@ class VoiceCall:
         text = text.strip()
         if not text:
             return ""
+        if text == NEWS:  # the call page noticed the PC has something to say
+            return self._next(quick=True, idle="")
         if self.pending:  # a tool is waiting for a spoken yes/no
             answer = yes_or_no(text)
             if answer is None:
@@ -135,23 +139,30 @@ class VoiceCall:
             done, box = self.pending
             box[0] = answer
             done.set()
-            return self._next()
+            return self._next(quick=True, idle="Okay. Still working on it, I'll tell you when it's done.")
         if self.busy:
             if is_stop(text):
                 self.stopped = True
                 return "Okay, stopping. I won't do anything else that needs your yes."
-            return self._next("About what you asked before: ")
+            return self._next("About what you asked before: ", quick=True,
+                              idle="Still working on it. I'll tell you when it's done.")
         self.stopped = False
         self.new_file = False
         self.busy = True
         threading.Thread(target=self._work, args=(text,), daemon=True).start()
-        return self._next()
+        return self._next(quick=True, idle="On it, one moment.")
 
-    def _next(self, prefix: str = "") -> str:
+    @property
+    def has_news(self) -> bool:
+        return not self.out.empty()
+
+    def _next(self, prefix: str = "", quick: bool = False, idle: str = "") -> str:
+        """The next thing to say. quick: wait only a few seconds, then say `idle`; the
+        call page asks again (NEWS) as soon as the result or a Yes/No question is ready."""
         try:
-            kind, said = self.out.get(timeout=TURN_TIMEOUT)
+            kind, said = self.out.get(timeout=QUICK_WAIT if quick else TURN_TIMEOUT)
         except queue.Empty:
-            return "Sorry, that's taking too long. Check the screen, or ask me again."
+            return idle if quick else "Sorry, that's taking too long. Check the screen, or ask me again."
         if kind == "reply" and self.new_file:
             said += " The download link is on your call screen."
             self.new_file = False
@@ -198,13 +209,11 @@ async def chat_completions(secret: str, request: Request):
     cid = "chatcmpl-" + secrets.token_hex(8)
 
     async def stream():
-        yield _chunk("... ", model, cid)  # ElevenLabs' tip for slower LLMs: a short buffer first
-        task = asyncio.create_task(asyncio.to_thread(CALL.turn, text))
-        while not task.done():
-            await asyncio.wait({task}, timeout=5)
-            if not task.done():
-                yield ": still working\n\n"  # SSE comment: keeps the connection alive
-        yield _chunk(task.result() or "", model, cid)
+        # turn() always answers within a few seconds (QUICK_WAIT): either the real answer
+        # or "On it". Results that come later are spoken via the call page's nudge
+        # (/voice/call/news). No "..." filler: ElevenLabs spoke it and stopped waiting.
+        said = await asyncio.to_thread(CALL.turn, text)
+        yield _chunk(said or "Okay.", model, cid)
         yield _chunk(None, model, cid, finish="stop")
         yield "data: [DONE]\n\n"
 
@@ -263,6 +272,24 @@ async def call_start(request: Request):
         raise HTTPException(status_code=502, detail=f"Couldn't reach ElevenLabs: {e}")
     CALL = VoiceCall()  # a fresh call: new Brain memory, no leftovers
     return {"signed_url": url, "token": CALL.token}
+
+
+@router.get("/call/screen")
+def call_screen(token: str):
+    """The live PC screen for the voice call page (one JPEG; the page asks again every ~0.6 s)."""
+    if not hmac.compare_digest(token.encode(), CALL.token.encode()):
+        return JSONResponse({"detail": "Not in a call."}, status_code=403)
+    from fastapi.responses import Response
+    from pc import screen
+    return Response(screen.capture_jpeg(960, 55), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+@router.get("/call/news")
+def call_news(token: str):
+    """Does the PC have something new to say (a result or a Yes/No question)? Polled by the call page."""
+    if not hmac.compare_digest(token.encode(), CALL.token.encode()):
+        return {"news": False}
+    return {"news": CALL.has_news}
 
 
 @router.get("/call/files")

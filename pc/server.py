@@ -9,11 +9,12 @@ import math
 import os
 import pathlib
 import secrets
+import threading
 import time
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -46,6 +47,8 @@ FRAME_EVERY = float(os.environ.get("HOMECALL_FPS_DELAY", "0.5"))  # seconds betw
 OUTBOX = ROOT / "pc" / "outbox"
 OUTBOX.mkdir(exist_ok=True)
 PHONE_DIR = ROOT / "phone"
+PC_WINDOW = ROOT / "pc" / "pc_window.html"
+PUBLIC_URL = os.environ.get("HOMECALL_PUBLIC_URL", "").rstrip("/")  # the tunnel address, from start.py
 
 MAX_WRONG_CODES = 5    # this many wrong pairing codes in a row ...
 LOCKOUT_SECONDS = 60   # ... and nobody can pair for this long (guessing 1,000,000 codes takes months)
@@ -99,6 +102,7 @@ async def lifespan(_app: FastAPI):
     global door
     door = Door()
     clean_outbox()
+    threading.Thread(target=_check_permissions, daemon=True).start()  # for the PC window
     yield
 
 
@@ -110,6 +114,53 @@ app.include_router(voice_router)  # /voice/transcribe and /voice/speak (owner: V
 @app.get("/")
 def phone_page() -> HTMLResponse:
     return HTMLResponse((PHONE_DIR / "index.html").read_text(encoding="utf-8"))
+
+
+# ------------------------------------------------------------- the PC window ---
+# http://localhost:8000/pc on THIS computer: QR code, pairing code, permissions.
+# It shows the code, so it must never answer through the tunnel or the network.
+
+PERMISSIONS: list[dict] = []
+
+
+def _check_permissions() -> None:
+    from pc import permissions
+    PERMISSIONS[:] = permissions.check(ask=False)
+
+
+def this_pc_only(request: Request) -> None:
+    host = (request.headers.get("host") or "").rsplit(":", 1)[0].strip("[]").lower()
+    via_tunnel = any(h in request.headers for h in ("cf-connecting-ip", "cf-ray", "x-forwarded-for"))
+    client = request.client.host if request.client else ""
+    if via_tunnel or host not in ("localhost", "127.0.0.1", "::1") or client not in ("127.0.0.1", "::1"):
+        raise HTTPException(status_code=404)
+
+
+@app.get("/pc")
+def pc_window(request: Request) -> HTMLResponse:
+    this_pc_only(request)
+    return HTMLResponse(PC_WINDOW.read_text(encoding="utf-8"))
+
+
+@app.get("/pc/info")
+def pc_window_info(request: Request, recheck: int = 0) -> dict:
+    this_pc_only(request)
+    if recheck or not PERMISSIONS:
+        _check_permissions()
+    brain = os.environ.get("HOMECALL_BRAIN", "").strip().lower()
+    brain = brain if brain in ("api", "max", "echo") else ("api" if os.environ.get("ANTHROPIC_API_KEY") else "echo")
+    names = {"api": "Claude (team key)", "max": "Claude (your Claude login)", "echo": "off: no key (echo mode)"}
+    return {"code": PAIR_CODE, "url": PUBLIC_URL, "in_call": door.in_call, "brain": names[brain],
+            "voice": bool(os.environ.get("ELEVENLABS_API_KEY") and os.environ.get("ELEVENLABS_AGENT_ID")),
+            "permissions": PERMISSIONS}
+
+
+@app.post("/pc/fix/{key}")
+def pc_window_fix(key: str, request: Request) -> dict:
+    this_pc_only(request)
+    from pc import permissions
+    permissions.open_settings(key)
+    return {"ok": True}
 
 
 @app.get("/health")
@@ -199,7 +250,8 @@ def main() -> None:
         print(f"  WARNING: HOMECALL_HOST={HOST}: devices on this network can reach the server")
         print(f"  directly (http://<this PC's IP>:{PORT}). Only for a quick test at home.")
     print()
-    uvicorn.run(app, host=HOST, port=PORT, log_level="warning")
+    # "info" lists every page load and call attempt (start.py turns it on and writes it to homecall.log).
+    uvicorn.run(app, host=HOST, port=PORT, log_level=os.environ.get("HOMECALL_LOG_LEVEL", "warning"))
 
 
 if __name__ == "__main__":
