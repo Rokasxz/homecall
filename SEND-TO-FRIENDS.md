@@ -1,5 +1,8 @@
 # Send-to-friends kit
 
+**Shortcut:** ONE-MESSAGE.md is a single message that does the job of Message 1,
+1b and 2 together. Use it if you'd rather send one thing.
+
 Ready-to-paste messages for your teammates, plus the steps for you (the lead).
 Replace every [bracket] before sending.
 
