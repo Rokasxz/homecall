@@ -21,7 +21,8 @@ REPO = "Rokasxz/homecall"
 ISSUE = 1
 AREAS = {1: ("Server & connection", "pc/server.py, pc/screen.py, pc/session.py"),
          2: ("Hands", "pc/actions/"), 3: ("Brain", "pc/brain/"),
-         4: ("Phone app", "phone/"), 5: ("Voice", "pc/voice/")}
+         4: ("Phone app", "phone/"), 5: ("Voice", "pc/voice/"),
+         6: ("Demo, tests & safety", "tests/, demo/")}
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 

@@ -5,3 +5,4 @@ pillow
 pyautogui
 anthropic
 python-multipart
+pytest

@@ -13,11 +13,11 @@ function shapes we all share ("the contract"): CLAUDE.md.
 Five areas, one owner each. You only ever edit your own folder:
 | Area | Folder |
 |---|---|
-| Server & connection (lead) | `pc/server.py`, `pc/screen.py`, `pc/session.py`, shared files |
+| Lead + Server & connection + Brain | `pc/server.py`, `pc/screen.py`, `pc/session.py`, `pc/brain/`, shared files |
 | Hands (what the AI can do) | `pc/actions/` |
-| Brain (the AI loop) | `pc/brain/` |
 | Phone app | `phone/` |
 | Voice (speech in and out) | `pc/voice/` |
+| Demo, tests & safety | `tests/`, `demo/` |
 
 ## 1. Install and log in (once, 20 minutes)
 1. **GitHub**: free account at github.com. Send the lead your username, then

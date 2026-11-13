@@ -12,29 +12,42 @@ The "Start prompt" is what you paste into your AI after the kickoff prompt
 - [ ] Day 2, [time]: FEATURE FREEZE
 - [ ] Day 2: demo practised twice on the real laptop + phone
 
-## Rokas, lead: integration, shared files, demo (`check.py`, `team/`, README, requirements.txt, CLAUDE.md)
-Start prompt: "Read PLAN.md and CLAUDE.md. I'm the lead. Task: after each merge
-into main, pull it, run python check.py and the demo path, and run the
-integration check (PROMPTS.md 9b). Keep main runnable; tell me who needs to fix what."
-- [x] Skeleton, rules, repo, invites (done before the hackathon)
-- [ ] Hour 1: everyone's check.py passes; names filled in; areas confirmed
-- [ ] Integration check after every merge (PROMPTS.md 9b); keep `main` runnable
-- [ ] Review Pull Requests (TEAMMATE-GUIDE.md, prompt O): files inside the owner's area, check.py passes
-- [ ] Approve or refuse new libraries (requirements.txt)
-- [ ] Day 2: demo laptop prepared (fake CV on Desktop, a draft to "delete", permissions granted); demo script; call the feature freeze
-Needs from others: everyone: merge small pieces every 1-2 hours.
-
-## nojuzaid-spec: Server & connection (`pc/server.py`, `pc/screen.py`, `pc/session.py`)
-Start prompt: "Read PLAN.md and CLAUDE.md. My area is Server & connection. Task:
-run the app, then make the live view feel smoother: only send a screen frame
-when the screen actually changed (compare with the previous JPEG), and let me
-tune frame rate and JPEG quality from .env. Don't change the message contract."
+## Rokas, lead: Brain + Server & connection + integration (`pc/brain/`, `pc/server.py`, `pc/screen.py`, `pc/session.py`, shared files)
+Start prompt: "Read PLAN.md and CLAUDE.md, especially contract section 3. I'm
+the lead and I own Brain. Task: put my ANTHROPIC_API_KEY in .env (never in
+code), run the app, and make the real brain answer. Then tune SYSTEM in
+pc/brain/agent.py so replies are one or two spoken sentences, and so 'find my
+CV and send it to me' runs find_file and send_file_to_phone in one go."
+Brain:
+- [ ] Real Claude replies working with a key in `.env`
+- [ ] Multi-step requests done in one go ("find X and send it", "open X and play")
+- [ ] Short spoken replies; friendly errors (no key, no internet) as a `reply`, never silence
+- [ ] "What's on my screen?" uses the screenshot well
+- [ ] Nice: `HOMECALL_MODEL=claude-sonnet-5-5` + `HOMECALL_EFFORT=low` if it feels slow
+Server & connection (the skeleton already works; these are improvements):
 - [ ] Install cloudflared, start the tunnel, open the https address on a phone over mobile data
 - [ ] Only send a frame when the screen changed; tune size/quality for mobile
-- [ ] Reconnect-friendly: a second `hello` with the right code replaces the old call
-- [ ] Lockout after 5 wrong codes (cheap security win)
-- [ ] Venue test: does the tunnel work on the hackathon Wi-Fi? If not: phone hotspot, or Tailscale
-Needs from others: Phone: reconnect automatically when the socket drops.
+- [ ] Lockout after 5 wrong codes
+Lead:
+- [ ] Hour 1: everyone's check.py passes; areas confirmed
+- [ ] Integration check after every merge (PROMPTS.md 9b); keep `main` runnable; review Pull Requests (TEAMMATE-GUIDE.md prompt O)
+- [ ] Approve or refuse new libraries; call the feature freeze
+Needs from others: Hands: clear docstrings. Phone: reconnect when the socket drops.
+
+## nojuzaid-spec: Demo, tests & safety (`tests/`, `demo/`)
+Start prompt: "Read PLAN.md and CLAUDE.md, especially contract sections 1, 2
+and 7, plus tests/README.md and demo/README.md. My area is Demo, tests &
+safety. Task: write tests/test_hands.py with pytest: one test per function in
+pc/actions/basic.py, using a temporary folder as ALLOWED_ROOTS (see check.py
+for the pattern) and a fake session object; never touch my real files. Run
+them and show me the result. Don't change files outside tests/ and demo/."
+- [ ] `tests/test_hands.py`: every tool in pc/actions tested with a temp folder (find, open, send, delete-asks-first)
+- [ ] `tests/test_contract.py`: fake phone call over the websocket (wrong code refused, right code welcomed, frames arrive, reply comes)
+- [ ] `demo/desktop/`: fake CV PDF, an "old draft" to delete, a notes file; `demo/DEMO-SCRIPT.md`: the 5 requests in order with expected results
+- [ ] Safety pass: try to break it (wrong codes, paths like ../, huge files, weird voice input) and write findings under "Needs from others" for the owner
+- [ ] Device log: each evening, try every feature on a real phone and PC; note what broke, for whom
+- [ ] `demo/PITCH.md`: 1-minute pitch + the honest security answer; practise the demo twice on day 2
+Needs from others: everyone: tell me when a piece is merged so I test it.
 
 ## Mantas: Hands (`pc/actions/`)
 Start prompt: "Read PLAN.md and CLAUDE.md, especially contract section 2. My
@@ -50,21 +63,6 @@ the docstring format exactly."
 - [ ] `lock_pc()` / `sleep_pc()` with confirm
 - [ ] Better `find_file`: also match "cv" to "Curriculum Vitae", recent files first
 Needs from others: Brain: tell me which tools the AI misuses, I'll fix the docstrings.
-
-## [Name 3]: Brain (`pc/brain/`)
-Start prompt: "Read PLAN.md and CLAUDE.md, especially contract section 3. My
-area is Brain. Task: put my ANTHROPIC_API_KEY in .env (never in code), run the
-app, and make the real brain answer. Then tune SYSTEM in pc/brain/agent.py so
-replies are one or two spoken sentences, and so 'find my CV and send it to me'
-runs find_file and send_file_to_phone in one go without asking questions."
-- [ ] Real Claude replies working with a key in `.env`
-- [ ] Multi-step requests done in one go ("find X and send it", "open X and play")
-- [ ] Short spoken replies; no lists, no markdown
-- [ ] Friendly errors (no key, no internet, API error) as a `reply`, never silence
-- [ ] "What's on my screen?" uses the screenshot well
-- [ ] Nice: `HOMECALL_MODEL=claude-sonnet-5-5` + `HOMECALL_EFFORT=low` if it feels slow
-- [ ] Stretch: computer-use toolset (`computer_toolset_20260801`) so the AI can click on the screen itself
-Needs from others: Hands: clear docstrings; Server: screenshot of the right monitor.
 
 ## Matuuunej: Phone app (`phone/`)
 Start prompt: "Read PLAN.md and CLAUDE.md, especially contract section 1. My

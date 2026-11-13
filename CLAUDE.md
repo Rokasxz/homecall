@@ -21,12 +21,12 @@ section of TASKS.md.
 
 | Area                    | Files                                                     | Owner           |
 |-------------------------|-----------------------------------------------------------|-----------------|
-| Lead: integration, shared files | `check.py`, `team/`, README, requirements.txt, CLAUDE.md, .env.example; merges, reviews, demo | Rokas |
-| Server & connection     | `pc/server.py`, `pc/screen.py`, `pc/session.py`           | nojuzaid-spec   |
+| Lead + Server & connection | `pc/server.py`, `pc/screen.py`, `pc/session.py`, `check.py`, `team/`, README, requirements.txt, CLAUDE.md, .env.example; merges and reviews | Rokas |
 | Hands (what the AI can do) | `pc/actions/`                                          | Mantas        |
-| Brain (the AI loop)     | `pc/brain/`                                               | [Name 3]        |
+| Brain (the AI loop)     | `pc/brain/`                                               | Rokas           |
 | Phone app               | `phone/`                                                  | Matuuunej       |
 | Voice (speech in and out) | `pc/voice/`                                             | Nexurent        |
+| Demo, tests & safety    | `tests/`, `demo/`                                         | nojuzaid-spec   |
 
 ## Rules for the AI (Claude, Codex, or any other)
 - Work only inside the area of the person you are helping. If a task needs a
@@ -114,6 +114,13 @@ with `url: /files/<token>`. The server serves it from there.
   and `engine.speak(text) -> bytes` in `pc/voice/engine.py`. Until implemented they
   return 501 and the phone falls back to the browser's own voice. Provider keys
   (e.g. `OPENAI_API_KEY`) go in `.env`.
+
+### 7. Tests and demo: `tests/`, `demo/`
+- `tests/` holds pytest tests that READ the other areas and check them against
+  this contract (run: `python -m pytest tests/`). They never change other areas'
+  files and never touch the real Desktop/Documents (use a temporary folder).
+- `demo/` holds the demo script, the fake files for the demo laptop's Desktop,
+  the pitch, and the device test log. Nothing private goes in there.
 
 ## Workflow
 - Branch name: `feature/<area>-<short-task>`, e.g. `feature/hands-read-file`.

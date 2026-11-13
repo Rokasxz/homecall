@@ -93,11 +93,11 @@ CUT (don't build these in 2 days):
 ## Five areas, five people, at the same time
 | Area | Folder | What "done" looks like on day 2 |
 |---|---|---|
-| Server & connection (lead) | `pc/server.py`, `pc/screen.py`, `pc/session.py`, shared files | Phone on mobile data connects through the tunnel, screen streams smoothly, files download. Runs the integration check after each merge. |
+| Lead + Server & connection + Brain | `pc/server.py`, `pc/screen.py`, `pc/session.py`, `pc/brain/`, shared files | Phone on mobile data connects through the tunnel; real Claude replies; multi-step requests work in one go. Runs the integration check after each merge. |
 | Hands | `pc/actions/` | Each tool works on the demo PC; 2-3 extra tools (read file text, click, media keys). |
-| Brain | `pc/brain/` | Real Claude replies; multi-step requests ("find X and send it") work in one go; short spoken answers. |
 | Phone app | `phone/` | Looks like a call; mic and speaker work on a real phone; confirm and file cards look good. |
 | Voice | `pc/voice/` | Speech-to-text and text-to-speech on the PC (two web endpoints), so voice works on every phone, including iPhones where the browser's own recognizer doesn't. |
+| Demo, tests & safety | `tests/`, `demo/` | Automated tests for the tools and the phone-PC contract; the demo script, fake demo files and pitch; a safety pass; device test log. |
 
 The skeleton already runs end to end (in "echo mode" without an API key), so
 all five start at once; nobody waits for anybody. The exact messages and
