@@ -20,8 +20,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 # Our test files, and the branches that may have a newer copy than main (last wins).
-TEST_FILES = ["test_hands.py", "test_contract.py", "test_safety.py", "test_media.py", "test_power.py", "test_demo_path.py", "test_pointer.py", "test_contract_types.py", "test_voice.py"]
-TEST_SOURCES = ["origin/main", "origin/feature/tests-ignore-env", "origin/feature/tests-contract-guard"]
+TEST_FILES = ["test_hands.py", "test_contract.py", "test_safety.py", "test_media.py", "test_power.py",
+              "test_demo_path.py", "test_pointer.py", "test_contract_types.py", "test_extras.py", "test_voice.py",
+              "test_search_clipboard.py", "test_telegram_people.py"]
+TEST_SOURCES = ["origin/main"]  # + my OPEN PR branches, added at run time (merged ones are stale)
 PY = ROOT / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 GH = shutil.which("gh") or str(Path.home() / ".local/bin/gh")
 
@@ -33,9 +35,9 @@ def sh(*args, cwd=ROOT, check=True) -> str:
     return r.stdout
 
 
-def newest_tests() -> dict[str, str]:
+def newest_tests(extra_refs: list[str] = ()) -> dict[str, str]:
     files = {}
-    for ref in TEST_SOURCES:
+    for ref in list(TEST_SOURCES) + list(extra_refs):
         for name in TEST_FILES:
             r = subprocess.run(["git", "show", f"{ref}:tests/{name}"], cwd=ROOT,
                                capture_output=True, text=True)
@@ -73,7 +75,9 @@ def main() -> None:
     sh("git", "fetch", "-q", "--all", "--prune")
     prs = json.loads(sh(GH, "pr", "list", "--state", "open", "--json",
                         "number,title,author,headRefName,isCrossRepository"))
-    tests = newest_tests()
+    me = sh(GH, "api", "user", "--jq", ".login").strip()
+    mine = [f"origin/{p['headRefName']}" for p in prs if p["author"]["login"] == me]
+    tests = newest_tests(mine)
     targets = [("main", "origin/main", "")]
     for pr in sorted(prs, key=lambda p: p["number"]):
         if pr["isCrossRepository"]:

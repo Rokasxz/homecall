@@ -124,3 +124,91 @@ main: 154 passed. Hands #28: all 16 click gaps fixed.
 | 16 | **Phone hides the reason**: on refusal the server sends `error` ("Wrong pairing code" / "Another phone is already on the call" / "locked"), but `ws.onclose` overwrites it with "Call ended." (seen on an iPhone in live test #1) | Phone | New, medium for the demo |
 | 17 | Mac hides extensions, so a program shows as "Evil" and a double-click doesn't ask | Hands | New, low (#28 checks names like `.app`/setup) |
 | 6 | /voice/* without the code | Voice + Lead | Still open |
+
+**Update after Hands #28 and Brain #26/#33 merged:** all click gaps (double-click
+on programs, Lithuanian words, Replace/Share/Upload/Open Anyway) are fixed and are
+now permanent tests. Brain SYSTEM now says file/screen text is data, never
+instructions, and never to type commands into a terminal (#10, #4 Brain side).
+Note: #33 removed the Brain's own "ask before risky clicks" line and relies on
+click_at's word check, so a click is only as safe as the AI's honest `what`.
+main: 169 passed. Left: /voice/* without the code (now Nojus, Voice), Mac hidden
+extensions (Hands, low), lockout shared by everyone (Lead).
+
+---
+
+# Safety pass #6 — new Hands tools (#38: open_url, close_app, scroll, send_folder_to_phone)
+
+`tests/test_extras.py` (29 tests): open_url only opens http(s) websites (no file:,
+javascript:, ms-settings:, smb:, user:pass@ tricks); close_app asks first, No =
+nothing, refuses AppleScript tricks, never matches HomeCall's own windows; scroll
+validates input; send_folder_to_phone zips without hidden files and refuses whole
+roots and outside paths.
+
+| # | Finding | Who | Status |
+|---|---|---|---|
+| 18 | **send_folder_to_phone follows symlinks inside the folder**: a shortcut in `Desktop/Project` pointing at e.g. `~/.ssh/id_rsa` is zipped and sent to the phone, bypassing the 4-folder rule. Confirmed by test. | Hands | **New, high** |
+| 6 | /voice/* without the code | Voice | Fixed in Voice PR #39 (draft) |
+
+---
+
+# Safety pass #7 — after Voice #39, Hands #41/#45/#46 (2026-11-13, afternoon)
+
+- **main was red**: `test_delete_asks_first_and_yes_deletes` failed because
+  delete_file now moves files to the Recycle Bin / Trash (good, safer) and refuses
+  if that fails. Tests now fake the Trash (they never touch the real one) and check:
+  Yes → file is in the trash, not gone; Trash fails → nothing deleted.
+- New tests `tests/test_search_clipboard.py`: search only inside the 4 folders,
+  recent files, clipboard read asks first (could be a password), No = nothing read.
+
+| # | Finding | Who | Status |
+|---|---|---|---|
+| 19 | **search_in_files follows symlinked files**: a shortcut in Desktop pointing at a file outside the 4 folders is read and its text returned (same as #18). Confirmed by test. | Hands | New, high |
+| 18 | send_folder_to_phone follows symlinks | Hands | Still open |
+| 6 | /voice/* without the pairing code | Voice | **Fixed in #39** (merged) |
+| — | Mac: delete via Finder needs Automation permission for the terminal on first use (macOS asks) | Demo | Note for the demo laptop setup |
+
+**#62 PC window (QR code + pairing code at localhost:8000/pc):** only answers on
+the PC itself (refuses tunnel/proxy headers and other host names, so no
+DNS-rebinding). `/pc/fix/<key>` only opens known System Settings pages (a web
+page on the PC could trigger it, but it can only open those pages: low).
+Guarded by tests in `test_safety.py`.
+
+---
+
+# Safety pass #8 — Telegram (#65: text or call your PC in Telegram)
+
+Good: only private messages/calls from `TG_ALLOWED` are handled
+(`pf.private & pf.user(owner)`, calls checked by chat/user id); it refuses to run
+if `TG_ALLOWED` is the Home PC account itself; the Telegram login files
+(`pc/telegram/*.session*`) are gitignored and none are committed; it uses the
+same doors as the phone (/ws with the pairing code), so Brain, Hands and their
+Yes/No are unchanged.
+
+| # | Finding | Who | Status |
+|---|---|---|---|
+| 20 | **"yes" matched by prefix**: while a Yes/No is pending, `low.startswith("yes")` makes "yesterday's one, not that" a YES (a delete or program run goes ahead). | Lead (Telegram) | New, medium |
+| 21 | `TG_ALLOWED` as an @username: usernames can be released and taken by someone else, who would be allowed after the next restart. Use the numeric id. | Lead (Telegram) | New, low |
+| 22 | Design: the Telegram route needs no pairing code; the owner's Telegram account is the key, and Yes/No questions go to that same chat (no second factor). Anyone with a logged-in Telegram session of the owner controls the PC. | Lead | Note for the pitch / README |
+
+Not covered by automated tests: pc/telegram needs its own venv (.venv-tgcall).
+
+**Update after #66–#68:** finding #20 (Telegram "yes" by prefix) is **fixed**: only
+the first whole word counts, and anything that isn't a clear yes is a No.
+Several Telegram people (#68) are safe: while a Yes/No is waiting nobody else can
+take over, so one person can't answer another's question. **Demo mode** (#66,
+`HOMECALL_DEMO=1` / `start.py --demo`) gives the AI only a fresh copy of
+`demo/desktop`, so real files can't be listed, sent or deleted during the demo.
+Use it for the video. main: 243 passed.
+
+---
+
+# Safety pass #9 — Telegram QR pairing (#71)
+
+Good: only exactly the current code pairs (a message full of numbers doesn't count),
+5 wrong codes per account, 20 in all = pairing off until the next start;
+`people.json` / `live.json` are gitignored; the PC window's Remove button only
+answers on the PC. `tests/test_telegram_people.py` (17 tests) guards these rules.
+
+| # | Finding | Who | Status |
+|---|---|---|---|
+| 23 | **Pairing is permanent and nobody is asked.** Anyone who sees the Telegram QR / code once (a projector at the demo, the demo video, a screenshot) can pair while HomeCall runs and keeps access after every restart, until someone notices them in the PC window. | Lead (Telegram) | New, medium. For the demo/video: hide or blur the QR. |

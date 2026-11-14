@@ -61,6 +61,12 @@ def home(tmp_path, monkeypatch):
     monkeypatch.setattr(basic, "HOME", fake_home)
     monkeypatch.setattr(basic, "ALLOWED_ROOTS", roots)
     monkeypatch.setattr(basic, "OUTBOX", outbox)
+    # delete_file moves files to the Recycle Bin / Trash (#41). Never touch the real one:
+    # "move" into a fake trash folder instead.
+    trash = tmp_path / "trash"
+    trash.mkdir()
+    if hasattr(basic, "_to_recycle_bin"):
+        monkeypatch.setattr(basic, "_to_recycle_bin", lambda p: bool(p.rename(trash / p.name)) or True)
     return fake_home
 
 
@@ -216,6 +222,23 @@ def test_delete_asks_first_and_yes_deletes(home, session):
     assert not target.exists()
 
 
+def test_deleted_file_goes_to_the_trash_not_gone(home, session):
+    if not hasattr(basic, "_to_recycle_bin"):
+        pytest.skip("Recycle Bin delete not in this version")
+    basic.delete_file(str(home / "Desktop" / "old draft.txt"))
+    assert (home.parent / "trash" / "old draft.txt").read_text() == "delete me"
+
+
+def test_if_the_trash_fails_nothing_is_deleted(home, session, monkeypatch):
+    if not hasattr(basic, "_to_recycle_bin"):
+        pytest.skip("Recycle Bin delete not in this version")
+    monkeypatch.setattr(basic, "_to_recycle_bin", lambda p: False)
+    monkeypatch.setattr(basic, "IS_MAC", True)
+    target = home / "Desktop" / "old draft.txt"
+    assert basic.delete_file(str(target)).startswith("Error")
+    assert target.exists()
+
+
 def test_delete_no_keeps_the_file(home, session):
     session.answer = False
     target = home / "Desktop" / "old draft.txt"
@@ -314,7 +337,9 @@ def test_every_tool_is_covered():
     tested = {"list_files", "find_file", "open_file", "send_file_to_phone",
               "delete_file", "open_app", "type_text", "press_keys", "pc_info",
               "read_file_text"}
-    tested |= {"media_key", "lock_pc", "sleep_pc", "click_at"}  # test_media/power/pointer.py
+    tested |= {"media_key", "lock_pc", "sleep_pc", "click_at",  # test_media/power/pointer.py
+               "open_url", "close_app", "scroll", "send_folder_to_phone",  # test_extras.py
+               "search_in_files", "find_recent_files", "get_clipboard", "set_clipboard"}  # test_search_clipboard.py
     missing = {f.__name__ for f in actions.TOOLS} - tested  # every file's tools, not just basic.py
     if missing:
         import warnings
