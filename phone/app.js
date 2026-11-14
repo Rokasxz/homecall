@@ -37,6 +37,7 @@ let callCode = null;     // the code of the current call, for reconnecting
 let wantCall = false;    // false after Hang up or an error from the PC
 let connected = false;   // the PC said "welcome" in this call: only then reconnect by itself
 let retries = 0;
+let busyTries = 0;       // reconnect refused because the PC still holds the old, dead connection
 const pending = [];      // things said while disconnected, sent after reconnecting
 const NO_REACH = "Can't reach your PC. Open the newest address (it changes when the PC restarts) " +
                  "and check HomeCall still runs on the PC. Still stuck? Switch between Wi-Fi and mobile data.";
@@ -44,7 +45,7 @@ const NO_REACH = "Can't reach your PC. Open the newest address (it changes when 
 function connect(code) {
   if (code.length !== 6) { $("connectError").textContent = "The code has 6 digits."; return; }
   $("connectError").textContent = "";
-  callCode = code; wantCall = true; connected = false; retries = 0;
+  callCode = code; wantCall = true; connected = false; retries = 0; busyTries = 0;
   rememberCode(code);
   calling(true);
   open();
@@ -69,7 +70,10 @@ function open() {
   // Some networks never answer: give up after 10 s instead of waiting forever.
   setTimeout(() => { if (sock.readyState === WebSocket.CONNECTING) sock.close(); }, 10000);
   sock.onclose = () => {
-    if (wantCall && connected && retries < 5) {
+    if (wantCall && connected && busyTries > 0 && busyTries <= 15) {
+      setStatus("Reconnecting... (the PC is closing the old connection)");
+      setTimeout(open, 3000);  // the PC frees a dead connection within ~20 s: keep trying up to 45 s
+    } else if (wantCall && connected && retries < 5) {
       retries += 1;
       setStatus("Connection lost, reconnecting...");
       setTimeout(open, 1500);
@@ -94,7 +98,7 @@ function showScreen(name) { $("connect").classList.toggle("hidden", name !== "co
 function handle(msg) {
   switch (msg.type) {
     case "welcome":
-      connected = true; calling(false);
+      connected = true; calling(false); busyTries = 0;
       showScreen("call"); setStatus(msg.text); retries = 0;
       while (pending.length) send(pending.shift());
       break;
@@ -103,6 +107,10 @@ function handle(msg) {
     case "file": addFile(msg.name, msg.url); break;
     case "confirm": askConfirm(msg.id, msg.text); break;
     case "error": {
+      if (connected && wantCall && /already on a call/i.test(msg.text) && busyTries < 15) {
+        busyTries += 1;  // our own old connection, not freed yet: onclose tries again shortly
+        break;
+      }
       const restarted = retries > 0 && /pairing code/i.test(msg.text);  // reconnect with an old code
       const text = restarted ? "The PC was restarted: enter the new code shown on the PC." : msg.text;
       wantCall = false; addMsg(text, "pc"); $("connectError").textContent = text; showScreen("connect");
@@ -155,7 +163,11 @@ function say(text) {
 }
 
 $("textForm").onsubmit = (e) => { e.preventDefault(); say($("textInput").value); $("textInput").value = ""; };
-$("hangupBtn").onclick = () => { wantCall = false; pending.length = 0; send({ type: "hangup" }); if (ws) ws.close(); };
+$("hangupBtn").onclick = () => {
+  wantCall = false; pending.length = 0;
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "hangup" }));  // never queue it for a later call
+  if (ws) ws.close();
+};
 
 // ----------------------------------------------------------------- voice
 // Speech-to-text: the browser's built-in recognizer (Chrome on Android, Safari on iOS).

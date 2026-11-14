@@ -278,7 +278,10 @@ def main() -> None:
         print(f"  directly (http://<this PC's IP>:{PORT}). Only for a quick test at home.")
     print()
     # "info" lists every page load and call attempt (start.py turns it on and writes it to homecall.log).
-    uvicorn.run(app, host=HOST, port=PORT, log_level=os.environ.get("HOMECALL_LOG_LEVEL", "warning"))
+    # Pings every 10 s: a phone that vanished (locked, network switch) is noticed within ~20 s, so its
+    # reconnect isn't refused for long as "another phone is already on the call".
+    uvicorn.run(app, host=HOST, port=PORT, log_level=os.environ.get("HOMECALL_LOG_LEVEL", "warning"),
+                ws_ping_interval=10, ws_ping_timeout=10)
 
 
 if __name__ == "__main__":

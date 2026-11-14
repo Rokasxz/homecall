@@ -375,8 +375,9 @@ def main() -> None:
     telegram, telegram_note = start_telegram(code) if code else (None, "off")
     if not code:
         say("\nThe app didn't start. Run `python check.py` to see why.")
-        if tunnel:
-            tunnel.terminate()
+        for p in (server, tunnel):  # don't leave a half-started server holding the port
+            if p and p.poll() is None:
+                p.terminate()
         sys.exit(1)
 
     say("\n" + "=" * 64)
