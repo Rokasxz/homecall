@@ -515,6 +515,24 @@ class HomePC:
                 self.call.joined.set()  # we hear you, so you're there
             await self.on_call_audio(update.frames)
 
+        @self.client.on_raw_update()
+        async def call_events(_, update, users, chats) -> None:
+            """Telegram's own call events, in homecall-telegram.log (to see why a call shows "failed")."""
+            name = type(update).__name__
+            if "PhoneCall" in name or "GroupCall" in name:
+                call = getattr(update, "phone_call", None) or getattr(update, "call", None)
+                extra = {k: getattr(call, k) for k in ("participants_count", "conference", "creator",
+                                                       "rtmp_stream", "join_muted") if hasattr(call, k)}
+                parts = [(p.peer.user_id if hasattr(p.peer, "user_id") else p.peer, "left" if p.left else "in")
+                         for p in getattr(update, "participants", [])]
+                log.info("TG %s %s %s %s", name, type(call).__name__ if call else "", extra or "", parts or "")
+            message = getattr(update, "message", None)
+            action = getattr(message, "action", None)
+            if action is not None and "Call" in type(action).__name__:
+                flags = {k: getattr(action, k) for k in ("missed", "active", "video", "duration", "reason")
+                         if getattr(action, k, None) not in (None, False)}
+                log.info("TG chat notice %s %s", type(action).__name__, flags)
+
         asyncio.create_task(self.link.close_when_idle())
         print(f"Telegram: {me.first_name} (@{me.username or '-'}) is on. Text it, or write \"call\".", flush=True)
         await asyncio.Event().wait()
