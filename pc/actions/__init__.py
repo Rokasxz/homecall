@@ -28,3 +28,8 @@ TOOLS = (_basic_tools + _media_tools + _power_tools + _pointer_tools + _extra_to
 # The Brain sets this before it runs the tools, so tools can talk to the phone
 # (progress text, confirmations, sending files). See pc/session.py.
 current_session = None
+
+# When the app runs, read documents in the background so the first search inside files is fast.
+from pc.actions.search import start_warm_up_if_app as _warm  # noqa: E402
+
+_warm()
