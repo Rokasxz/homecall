@@ -43,7 +43,8 @@ ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 PORT = int(os.environ.get("HOMECALL_PORT", "8000"))
 BASE = f"http://127.0.0.1:{PORT}"
-VIDEO_FPS = 10
+VIDEO_FPS = int(os.environ.get("HOMECALL_TG_FPS", "8"))             # screen pictures a second in a call
+VIDEO_WIDTH = int(os.environ.get("HOMECALL_TG_VIDEO_WIDTH", "720"))  # smaller = less upload (hotspot!)
 LINK_IDLE = 180            # close the text link to HomeCall after 3 min without messages
 ANSWER_TIMEOUT = 60        # seconds to wait for you to pick up
 CALL_WORDS = {"call", "call me", "skambink", "paskambink", "video", "videocall"}
@@ -323,7 +324,7 @@ class HomePC:
         call.kind = "p2p" if answer else "conference"
         try:  # the screen comes from HomeCall's server (one program taking screenshots, not two)
             self.video = await asyncio.to_thread(
-                ScreenVideo, lambda: _http("GET", f"/voice/call/screen?token={call.token}", timeout=15))
+                ScreenVideo, lambda: _http("GET", f"/voice/call/screen?token={call.token}", timeout=15), VIDEO_WIDTH)
         except Exception as e:  # noqa: BLE001
             self.call = None
             await self.say(f"\u26a0\ufe0f Couldn't get the PC's screen ({e}).")
@@ -462,15 +463,25 @@ class HomePC:
     async def _video_out(self, call: VoiceCall) -> None:
         """About 10 screen pictures a second (captured in a thread so the sound never stutters)."""
         from pytgcalls.types import Device, Frame
+        sent, fails, since = 0, 0, time.monotonic()
         while True:
             t0 = time.monotonic()
+            if t0 - since >= 10:  # every 10 s: how the picture stream is doing (homecall-telegram.log)
+                log.info("video: %d pictures sent, %d failed in the last 10 s", sent, fails)
+                sent, fails, since = 0, 0, t0
             try:
                 data = await asyncio.to_thread(self.video.frame)
                 await done(self.calls.send_frame(self.owner, Device.CAMERA, data,
                                                  Frame.Info(width=self.video.width, height=self.video.height)))
+                sent += 1
             except asyncio.CancelledError:
                 raise
-            except Exception:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001
+                fails += 1
+                if type(e).__name__ == "NotInCallError":  # the call is gone: stop sending pictures
+                    if self.call is call:
+                        await self.end_call("Call ended.")
+                    return
                 log.exception("video frame")
                 await asyncio.sleep(0.5)
             await asyncio.sleep(max(0, 1 / VIDEO_FPS - (time.monotonic() - t0)))
