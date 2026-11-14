@@ -326,7 +326,7 @@ class HomePC:
             await done(self.calls.leave_call(self.owner, close=True))
         except Exception:  # noqa: BLE001
             pass
-        print(f"Call ended. {why}", flush=True)
+        print("Call ended.", flush=True)
         if why:
             await self.say(why)
 
