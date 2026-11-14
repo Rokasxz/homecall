@@ -31,6 +31,26 @@
 | Live screen frozen | Close the HomeCall window, double-click again |
 | Telegram call shows "missed" | Tap the camera icon on the call message |
 
+## Demo videos (record them before the pitch)
+A backup video saves the pitch if the venue Wi-Fi or a call fails, and short clips work in the slides.
+Record **the phone and the laptop at the same time**, then put them side by side.
+
+| Video | Length | What happens |
+|---|---|---|
+| 1. The voice call (main one) | 60-90 s | Scan the QR, Voice call, "What's on my desktop?", "Find my CV and send it to me" (tap the download), "Open Calculator", "Delete the old draft" -> Yes/No -> No |
+| 2. Telegram | 45-60 s | Write "What's on my desktop?" to the Home PC, then "call", join, say "Open Calculator" while the screen shows in the call |
+| 3. Setup in 30 s | 30 s | Double-click HomeCall, the PC window with the QR code, scan it, "Connected to your PC" |
+
+How to record:
+- **Phone (iPhone):** Control Center -> Screen Recording (long-press it and turn the **Microphone on**, so your voice is in it).
+  Android: Quick Settings -> Screen record (with audio).
+- **Laptop (Mac):** press Cmd+Shift+5 -> Record Entire Screen. (Windows: Win+Alt+R with the Xbox Game Bar.)
+- Use **demo mode** (`HOMECALL_DEMO=1`), Do Not Disturb on both, a clean desktop, and the phone on the hotspot.
+- Start both recordings, then clap once: the clap lines the two videos up when you edit.
+- **Edit:** put the phone video next to the laptop video (iMovie, CapCut or Canva: "picture in picture" or a split screen),
+  cut the waiting, add one caption per step ("asks before deleting", "file sent to the phone").
+- Keep the files on the laptop AND on a USB stick or cloud drive, ready to play if the live demo fails.
+
 ## What we can honestly say
 - Only you can connect (one-time code, 5 wrong codes = locked out), and risky actions need your Yes.
 - Everything travels encrypted; the Telegram call is end-to-end encrypted.
