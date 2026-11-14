@@ -27,6 +27,9 @@ _LOCK = threading.Lock()
 # macOS's own `screencapture` tool for a minute (it keeps working), then try the normal way again.
 GRAB_TIMEOUT = 5.0
 _stuck_until = 0.0
+# HOMECALL_CAPTURE=macos: always use macOS's own tool. Needed while the screen is being recorded
+# (QuickTime, Cmd+Shift+5, screencapture -V): a recording freezes the normal way of capturing.
+ALWAYS_MACOS_TOOL = sys.platform == "darwin" and os.environ.get("HOMECALL_CAPTURE", "").lower() == "macos"
 
 
 def _grab_mss() -> Image.Image:
@@ -54,7 +57,7 @@ def _grab_macos_tool() -> Image.Image:
 
 def _grab() -> Image.Image:
     global _stuck_until
-    if sys.platform == "darwin" and time.time() < _stuck_until:
+    if ALWAYS_MACOS_TOOL or (sys.platform == "darwin" and time.time() < _stuck_until):
         return _grab_macos_tool()
     result: dict = {}
 
