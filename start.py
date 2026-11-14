@@ -5,6 +5,8 @@ phone, and (if the ElevenLabs key is in .env) points YOUR voice agent at it.
     python start.py              start everything; Ctrl+C stops everything
     python start.py --local      only on this computer (http://localhost:8000), no tunnel
     python start.py --no-window  don't open the PC window (http://localhost:8000/pc) in the browser
+    python start.py --demo       demo mode: the AI only sees a copy of demo/desktop, never your real files
+                                 (or put HOMECALL_DEMO=1 in .env on the demo laptop)
 
 On a Mac it first asks for every permission HomeCall needs (see pc/permissions.py),
 so nothing pops up in the middle of a call. Then it opens the PC window with a QR
@@ -355,6 +357,8 @@ def start_server(url: str | None, tunnel_note: str = "") -> tuple[subprocess.Pop
 
 def main() -> None:
     local_only = "--local" in sys.argv
+    if "--demo" in sys.argv:
+        os.environ["HOMECALL_DEMO"] = "1"  # passed on to the server
     env = read_env()
     say("\nHomeCall: connecting this computer...")
     if not port_free(PORT):
@@ -386,6 +390,8 @@ def main() -> None:
     say(f"  PC window (QR code):        http://localhost:{PORT}/pc")
     say(f"  Pairing code:               {code}")
     say(f"  Allowed on this PC:         {allowed}")
+    demo = (os.environ.get("HOMECALL_DEMO") or env.get("HOMECALL_DEMO", "")).lower() in ("1", "true", "yes", "on")
+    say(f"  Files:  {'DEMO: only a copy of demo/desktop, your real files are hidden' if demo else 'your real Desktop, Documents, Downloads, Pictures'}")
     say(f"  Brain:  {brain_line(env)}")
     say(f"  Voice:  {voice}")
     say(f"  Telegram: {telegram_note}")

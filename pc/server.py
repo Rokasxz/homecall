@@ -50,6 +50,30 @@ PHONE_DIR = ROOT / "phone"
 PC_WINDOW = ROOT / "pc" / "pc_window.html"
 PUBLIC_URL = os.environ.get("HOMECALL_PUBLIC_URL", "").rstrip("/")  # the tunnel address, from start.py
 
+
+def use_demo_folders() -> str:
+    """Demo mode (HOMECALL_DEMO=1, or `python start.py --demo`): the AI only sees a FRESH COPY of
+    demo/desktop (a fake CV, an old draft, notes) as the Desktop, and empty Documents/Downloads/
+    Pictures. The real files can't be listed, sent or deleted. Returns the demo folder, or ""."""
+    if os.environ.get("HOMECALL_DEMO", "").strip().lower() not in ("1", "true", "yes", "on"):
+        return ""
+    import shutil
+    import tempfile
+    import pc.actions.basic as basic
+    root = pathlib.Path(tempfile.mkdtemp(prefix="homecall-demo-"))
+    folders = {name: root / name for name in ("Desktop", "Documents", "Downloads", "Pictures")}
+    for folder in folders.values():
+        folder.mkdir()
+    if (ROOT / "demo" / "desktop").is_dir():
+        shutil.copytree(ROOT / "demo" / "desktop", folders["Desktop"], dirs_exist_ok=True)
+    basic.SPECIAL_FOLDERS.clear()        # changed in place: every tool reads these two
+    basic.SPECIAL_FOLDERS.update(folders)
+    basic.ALLOWED_ROOTS[:] = list(folders.values())
+    return str(root)
+
+
+DEMO_FOLDER = use_demo_folders()
+
 MAX_WRONG_CODES = 5    # this many wrong pairing codes in a row ...
 LOCKOUT_SECONDS = 60   # ... and nobody can pair for this long (guessing 1,000,000 codes takes months)
 
@@ -243,6 +267,8 @@ async def call(ws: WebSocket) -> None:
 def main() -> None:
     print("\n  HomeCall is running.")
     print(f"  Pairing code: {PAIR_CODE}")
+    if DEMO_FOLDER:
+        print(f"  DEMO MODE: the AI only sees a copy of demo/desktop ({DEMO_FOLDER}); your real files are hidden.")
     print(f"  On this PC:   http://localhost:{PORT}")
     print("  From the phone: use the https address that cloudflared prints, e.g.")
     print(f"      cloudflared tunnel --url http://localhost:{PORT}")
