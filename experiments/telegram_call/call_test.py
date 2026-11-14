@@ -109,6 +109,13 @@ async def main() -> None:
     await client.start()  # first time: asks for the phone number and the login code (you type them)
     me = await client.get_me()
     owner_id = int(allowed) if allowed.isdigit() else (await client.get_users(allowed)).id
+    # Telegram hides calls from strangers: a new account that isn't your contact gets "missed" at once
+    # and no direct connection. So the Home PC saves you as a contact (save it on your phone too).
+    try:
+        await client.add_contact(owner_id, first_name="Owner")
+        log.info("added the owner as a contact")
+    except Exception as e:  # noqa: BLE001
+        print(f"  (couldn't add you as a contact: {type(e).__name__}: {e})")
     if owner_id == me.id:
         sys.exit(f"TG_ALLOWED is this PC's OWN account (@{me.username}). Put the account you call FROM in .env.")
     print(f"\nHome PC account: {me.first_name} (@{me.username or '-'}). Answers calls only from {allowed}.")
