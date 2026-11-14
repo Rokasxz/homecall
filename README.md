@@ -34,6 +34,31 @@ Call YOUR computer from YOUR phone, from anywhere (the phone doesn't need the sa
 - If your Wi-Fi blocks the tunnel (it says so), connect the computer to your phone's hotspot.
 - Check the permissions any time: `python -m pc.permissions`.
 
+## Telegram: text or call your PC (optional)
+
+Give the PC its own Telegram account ("Home PC"). Then, in Telegram:
+- **Write to it** ("What's on my desktop?", "Send me my CV"): it does it and answers in the chat.
+  Files arrive in the chat; Yes/No questions come as a message (answer yes or no). Voice notes work.
+- **Write "call"** (or call it): it calls you back as a Telegram call with the PC screen as video,
+  and you talk to the same AI as the voice call. Write "hang up" or leave the call to end.
+
+Set it up once:
+1. A Telegram account for the PC, on a spare SIM (not your own number).
+2. https://my.telegram.org -> API development tools -> create an app; in `.env`:
+   `TG_API_ID=...`, `TG_API_HASH=...` and `TG_ALLOWED=@your_username` (YOUR account, the only
+   one it answers; not the PC's).
+3. Its own Python setup, then log the PC account in (type its phone number and the code):
+   ```
+   python -m venv .venv-tgcall
+   .venv-tgcall/bin/pip install -r pc/telegram/requirements.txt
+   .venv-tgcall/bin/python -m pc.telegram.home_pc --login
+   ```
+   (Windows: `.venv-tgcall\Scripts\pip` and `.venv-tgcall\Scripts\python`.)
+4. Start HomeCall as usual: it starts the Telegram part too (`Telegram: on` in the summary).
+
+Telegram calls need the PC on a network that lets them through: the venue Wi-Fi blocks them,
+use the phone's hotspot. How it works: `pc/telegram/home_pc.py`.
+
 ## Run it (on the PC)
 
 Needs Python 3.11 or newer.

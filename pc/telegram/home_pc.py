@@ -191,7 +191,9 @@ class VoiceCall:
 class HomePC:
     def __init__(self) -> None:
         self.code = pairing_code()
-        self.owner = int(env("TG_ALLOWED") or 0)
+        allowed = env("TG_ALLOWED").lstrip("@")
+        self.owner_name = "" if allowed.isdigit() else allowed  # an @username: looked up after login
+        self.owner = int(allowed) if allowed.isdigit() else 0
         self.client = self.calls = self.video = None
         self.link = PhoneLink(self)
         self.pending: str | None = None  # Yes/No question waiting for your answer (its id)
@@ -448,11 +450,13 @@ class HomePC:
         from pytgcalls.types import ChatUpdate, Device, Direction, GroupCallParticipant
 
         api_id, api_hash = env("TG_API_ID"), env("TG_API_HASH")
-        if not (api_id and api_hash and self.owner):
+        if not (api_id and api_hash and (self.owner or self.owner_name)):
             sys.exit("Telegram: TG_API_ID, TG_API_HASH and TG_ALLOWED are missing in .env.")
         self.client = Client("homepc", api_id=int(api_id), api_hash=api_hash, workdir=str(HERE))
         await self.client.start()  # the first time (--login): asks for the phone number and the code
         me = await self.client.get_me()
+        if self.owner_name:
+            self.owner = (await self.client.get_users(self.owner_name)).id
         if login_only:
             print(f"Logged in as {me.first_name}. HomeCall's start.py now starts the Telegram part by itself.")
             await self.client.stop()
