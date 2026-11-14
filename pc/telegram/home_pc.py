@@ -115,6 +115,7 @@ class PhoneLink:
         self.ws = None
         self.last = 0.0
         self.reader = None
+        self._lock = asyncio.Lock()  # two quick messages must not open two connections
 
     async def say(self, text: str) -> None:
         await self._open()
@@ -127,6 +128,10 @@ class PhoneLink:
         self.last = time.time()
 
     async def _open(self) -> None:
+        async with self._lock:
+            await self._open_locked()
+
+    async def _open_locked(self) -> None:
         import websockets
         if self.ws is not None and self.ws.state.name == "OPEN":
             return
@@ -153,12 +158,20 @@ class PhoneLink:
             async for msg in ws:
                 if isinstance(msg, str):
                     self.last = time.time()
-                    await self.home.on_phone_message(json.loads(msg))
+                    try:  # one failed Telegram message (too big, flood limit...) must not end the chat
+                        await self.home.on_phone_message(json.loads(msg))
+                    except Exception:  # noqa: BLE001
+                        log.exception("couldn't pass on a message from HomeCall")
         except Exception as e:  # noqa: BLE001
             log.info("text link closed: %s", e)
         finally:
             if self.ws is ws:
                 self.ws = None
+                self.home.pending = None  # a question from this link can't be answered any more
+            try:
+                await ws.close()  # so HomeCall frees the "phone" place at once
+            except Exception:  # noqa: BLE001
+                pass
 
     async def close_when_idle(self) -> None:
         while True:
@@ -186,6 +199,8 @@ class VoiceCall:
         self.joined = asyncio.Event()
         self.tasks: list[asyncio.Task] = []
         self.files_seen: set[str] = set()
+        self.kind = "conference"           # or "p2p" when you called the Home PC
+        self.carry = b""                   # agent sound shorter than one 10 ms frame, kept for the next piece
 
 
 class HomePC:
@@ -198,10 +213,12 @@ class HomePC:
         self.link = PhoneLink(self)
         self.pending: str | None = None  # Yes/No question waiting for your answer (its id)
         self.call: VoiceCall | None = None
+        self._starting = False           # a call is being set up (until it's connected or failed)
         self._typing = 0.0
 
     async def say(self, text: str) -> None:
-        await self.client.send_message(self.owner, text)
+        for i in range(0, max(1, len(text)), 4000):  # Telegram's limit is 4096 characters a message
+            await self.client.send_message(self.owner, text[i:i + 4000] or "Done.")
 
     # ------------------------------------------------------------ text chat ---
     async def on_phone_message(self, msg: dict) -> None:
@@ -211,6 +228,7 @@ class HomePC:
             self._typing = time.time()
             await self.client.send_chat_action(self.owner, enums.ChatAction.TYPING)
         elif kind == "reply":
+            self.pending = None  # answered, or HomeCall stopped waiting (it waits 60 s)
             await self.say(msg.get("text") or "Done.")
         elif kind == "confirm":
             self.pending = msg.get("id")
@@ -218,6 +236,7 @@ class HomePC:
         elif kind == "file":
             await self.send_file(msg.get("name", "file"), msg.get("url", ""))
         elif kind == "error":
+            self.pending = None
             await self.say(f"⚠️ {msg.get('text')}")
 
     async def send_file(self, name: str, url: str) -> None:
@@ -228,10 +247,14 @@ class HomePC:
             return
         doc = io.BytesIO(data)
         doc.name = name
-        if name.lower().endswith((".png", ".jpg", ".jpeg")):
-            await self.client.send_photo(self.owner, doc, caption=name)
-        else:
-            await self.client.send_document(self.owner, doc, file_name=name)
+        try:
+            if name.lower().endswith((".png", ".jpg", ".jpeg")) and len(data) < 10_000_000:
+                await self.client.send_photo(self.owner, doc, caption=name)
+            else:
+                await self.client.send_document(self.owner, doc, file_name=name)
+        except Exception as e:  # noqa: BLE001
+            log.exception("upload")
+            await self.say(f"⚠️ Couldn't send {name} here ({type(e).__name__}).")
 
     async def on_text(self, text: str) -> None:
         low = text.strip().lower().rstrip("!. ")
@@ -240,12 +263,13 @@ class HomePC:
         elif low in HANGUP_WORDS and self.call:
             await self.end_call("Call ended.")
         elif self.pending:
-            ok = low in YES or low.startswith("yes")
-            if not ok and not (low in NO or low.startswith("no")):
-                await self.say("Answer yes or no, please.")
-                return
+            first = (re.findall(r"[a-z']+", low) or [""])[0]
+            ok = low in YES or first in YES
+            no = low in NO or first in NO
             cid, self.pending = self.pending, None
-            await self.link.confirm(cid, ok)
+            await self.link.confirm(cid, ok)  # anything that isn't a yes counts as no...
+            if not ok and not no:
+                await self.on_text(text)       # ...and a new request is then handled as one
         else:
             if not self.code:
                 await self.say("⚠️ HomeCall isn't running on the PC. Start it first.")
@@ -274,9 +298,18 @@ class HomePC:
         """answer=True: pick up YOUR call (you called the Home PC). Else call you (conference-style)."""
         from pytgcalls.types import AudioQuality, CallConfig, ExternalMedia, MediaStream, RecordStream
         from pytgcalls.types.raw import AudioParameters, VideoParameters
-        if self.call:
+        if self.call or self._starting:
             await self.say("We're already on a call.")
             return
+        self._starting = True
+        try:
+            await self._start_call(answer)
+        finally:
+            self._starting = False
+
+    async def _start_call(self, answer: bool) -> None:
+        from pytgcalls.types import AudioQuality, CallConfig, ExternalMedia, MediaStream, RecordStream
+        from pytgcalls.types.raw import AudioParameters, VideoParameters
         try:
             start = await asyncio.to_thread(post_json, "/voice/call/start", {"code": self.code})
         except urllib.error.HTTPError as e:
@@ -287,6 +320,7 @@ class HomePC:
             await self.say(f"⚠️ Can't reach HomeCall on the PC ({e}). Is it running?")
             return
         call = self.call = VoiceCall(start["signed_url"], start["token"])
+        call.kind = "p2p" if answer else "conference"
         try:  # the screen comes from HomeCall's server (one program taking screenshots, not two)
             self.video = await asyncio.to_thread(
                 ScreenVideo, lambda: _http("GET", f"/voice/call/screen?token={call.token}", timeout=15))
@@ -312,13 +346,19 @@ class HomePC:
             if answer:  # couldn't pick up: call you back instead (that works)
                 print("Couldn't pick up, calling back instead.", flush=True)
                 await asyncio.sleep(1.5)
-                await self.start_call()
+                await self._start_call(False)
                 return
             if type(e).__name__ == "TelegramServerError":
                 await self.say("⚠️ Couldn't reach Telegram's call servers from the PC's network "
                                "(some Wi-Fi blocks them). Connect the PC to a phone hotspot and try again.")
             else:
                 await self.say(f"⚠️ Couldn't call you: {type(e).__name__}: {e}")
+            return
+        if self.call is not call:  # it was ended while connecting
+            try:
+                await done(self.calls.leave_call(self.owner, close=True))
+            except Exception:  # noqa: BLE001
+                pass
             return
         if answer:
             call.joined.set()  # you started the call, so you're already there
@@ -333,8 +373,10 @@ class HomePC:
         call, self.call = self.call, None
         if call is None:
             return
+        me = asyncio.current_task()  # end_call may run inside one of the call's own tasks
         for t in call.tasks:
-            t.cancel()
+            if t is not me:
+                t.cancel()
         if call.ws is not None:
             try:
                 await call.ws.close()
@@ -369,9 +411,11 @@ class HomePC:
                         call.in_rate = rate_of(meta.get("user_input_audio_format", "pcm_16000"))
                     elif kind == "audio":
                         pcm = base64.b64decode(msg["audio_event"]["audio_base_64"])
-                        call.out.extend(agent_to_call(pcm, call.out_rate))
+                        frames, call.carry = agent_to_call(pcm, call.out_rate, call.carry)
+                        call.out.extend(frames)
                     elif kind == "interruption":
                         call.out.clear()  # you started talking: stop speaking
+                        call.carry = b""
                     elif kind == "ping":
                         await ws.send(json.dumps({"type": "pong", "event_id": msg["ping_event"]["event_id"]}))
                     elif kind == "user_transcript":
@@ -513,14 +557,22 @@ class HomePC:
 
         @self.calls.on_update(cf.call_participant(GroupCallParticipant.Action.LEFT))
         async def left(_, update) -> None:
-            if self.call and update.participant.user_id == self.owner:
+            if self.call and not self._starting and update.participant.user_id == self.owner:
                 await self.end_call("Call ended.")
 
         @self.calls.on_update(cf.chat_update(ChatUpdate.Status.DISCARDED_CALL | ChatUpdate.Status.LEFT_CALL
                                              | ChatUpdate.Status.CLOSED_VOICE_CHAT | ChatUpdate.Status.KICKED))
         async def gone(_, update) -> None:
-            if self.call and update.chat_id == self.owner:
-                await self.end_call("Call ended.")
+            """The call ended. A call that is still starting is ignored (its own code handles failures),
+            and a conference call only ends when the conference closes: a 1:1 call ending (e.g. you
+            calling the Home PC during the call) is a different call."""
+            call = self.call
+            if call is None or self._starting or update.chat_id != self.owner:
+                return
+            closed = ChatUpdate.Status.CLOSED_VOICE_CHAT | ChatUpdate.Status.KICKED
+            if call.kind == "conference" and not (update.status & closed):
+                return
+            await self.end_call("Call ended.")
 
         @self.calls.on_update(cf.stream_frame(Direction.INCOMING, Device.MICROPHONE))
         async def your_voice(_, update) -> None:

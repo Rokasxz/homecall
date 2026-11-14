@@ -5,6 +5,7 @@ sent back. A 2-day hackathon project.
 
 - Plan, decisions and why: PLAN.md
 - Team rules and the contract between the parts: CLAUDE.md
+- **Demo day: DEMO.md** (setup, what to say, what to do if something breaks)
 - Who does what: TASKS.md
 - Teammates start here: TEAMMATE-GUIDE.md (login, rules, prompts, testing)
 - How we work together: TEAM-SETUP.md, PROMPTS.md
