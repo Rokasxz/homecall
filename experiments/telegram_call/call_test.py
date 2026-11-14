@@ -37,6 +37,8 @@ HERE = Path(__file__).resolve().parent
 RATE, CHANNELS = 48000, 2                     # what the call library sends and expects
 FRAME_BYTES = RATE * 2 * CHANNELS // 100      # 10 ms of 16-bit stereo = 1920 bytes
 ECHO_DELAY_FRAMES = 100                       # 1 s
+VIDEO_FPS = 10                                # screen pictures per second sent into the call
+NATIVE_SCREEN = "--native-screen" in sys.argv  # old way: macOS asks someone at the PC to pick a screen
 results: dict[str, str] = {}
 LOG = HERE / "debug.log"   # every step of the call library, to find bugs (private, gitignored)
 logging.basicConfig(filename=str(LOG), filemode="w", level=logging.DEBUG,
@@ -82,6 +84,27 @@ def chime() -> list[bytes]:
     return frames
 
 
+class ScreenVideo:
+    """Our own screen capture for the call (HomeCall's pc/screen.py, mss): on a Mac it needs Screen
+    Recording permission ONCE, instead of macOS's picker asking someone at the PC on every call."""
+
+    def __init__(self, width: int = 1280) -> None:
+        sys.path.insert(0, str(ROOT))
+        from pc import screen
+        self._grab = screen._grab
+        w, h = self._grab().size
+        self.width = width - width % 2
+        self.height = int(self.width * h / w) // 2 * 2  # same shape as the screen, even numbers
+
+    def frame(self) -> bytes:
+        """One picture as I420 (yuv420p), the raw format the call engine takes."""
+        from PIL import Image
+        img = self._grab().resize((self.width, self.height), Image.BILINEAR)
+        y, cb, cr = img.convert("YCbCr").split()
+        half = (self.width // 2, self.height // 2)
+        return y.tobytes() + cb.resize(half, Image.BILINEAR).tobytes() + cr.resize(half, Image.BILINEAR).tobytes()
+
+
 def level(pcm: bytes) -> int:
     """Loudness 0-100 of a 16-bit frame, to show that the PC hears you."""
     n = len(pcm) // 2
@@ -97,7 +120,8 @@ async def main() -> None:
     from pytgcalls import MediaDevices, PyTgCalls, filters
     from pytgcalls.types import (AudioQuality, CallConfig, ChatUpdate, Device, Direction, ExternalMedia,
                                  MediaStream, RecordStream, StreamFrames, VideoQuality)
-    from pytgcalls.types.raw import AudioParameters
+    from pytgcalls.types import Frame
+    from pytgcalls.types.raw import AudioParameters, VideoParameters
 
     api_id, api_hash, allowed = env("TG_API_ID"), env("TG_API_HASH"), env("TG_ALLOWED").lstrip("@")
     if not (api_id and api_hash and allowed):
@@ -123,8 +147,11 @@ async def main() -> None:
     await done(calls.start())
 
     screens = MediaDevices.screen_devices()
-    if not screens:
+    if NATIVE_SCREEN and not screens:
         sys.exit("No screen found to share (Screen Recording permission for Terminal?).")
+    video = None if NATIVE_SCREEN else ScreenVideo()
+    if video:
+        print(f"Screen: our own capture, {video.width}x{video.height}, {VIDEO_FPS} pictures/s (no picker on the PC)")
     chime_frames = chime()
     out_queue: deque[bytes] = deque()   # what we send: chime first, then your voice 1 s late
     heard: list[bytes] = []
@@ -150,8 +177,14 @@ async def main() -> None:
         conference=True places the call the way current Telegram apps do: a (1:1) conference call that
         invites you. Your phone refused the old-style 1:1 call at once ("missed" within 4 ms).
         """
-        stream = MediaStream(screens[0], audio_parameters=AudioParameters(bitrate=RATE, channels=CHANNELS),
-                             video_parameters=VideoQuality.HD_720p, audio_path=ExternalMedia.AUDIO)
+        if video:  # our own pictures + our own sound
+            stream = MediaStream(ExternalMedia.VIDEO, audio_parameters=AudioParameters(bitrate=RATE, channels=CHANNELS),
+                                 video_parameters=VideoParameters(width=video.width, height=video.height,
+                                                                  frame_rate=VIDEO_FPS),
+                                 audio_path=ExternalMedia.AUDIO)
+        else:      # the library's screen device: macOS shows its picker on the PC
+            stream = MediaStream(screens[0], audio_parameters=AudioParameters(bitrate=RATE, channels=CHANNELS),
+                                 video_parameters=VideoQuality.HD_720p, audio_path=ExternalMedia.AUDIO)
         try:
             await done(calls.play(chat_id, stream, CallConfig(conference=True) if conference else None))
             report(step, True)
@@ -228,7 +261,26 @@ async def main() -> None:
             except Exception as e:  # noqa: BLE001
                 report("4. PC sends sound", False, f"{type(e).__name__}: {e}")
 
+    async def video_sender() -> None:
+        """About 10 screen pictures a second. Capturing runs in a thread so the sound never stutters."""
+        sent = 0
+        while video:
+            t0 = time.monotonic()
+            chat = state["chat"]
+            if chat is not None:
+                try:
+                    data = await asyncio.to_thread(video.frame)
+                    await done(calls.send_frame(chat, Device.CAMERA, data,
+                                                Frame.Info(width=video.width, height=video.height)))
+                    sent += 1
+                    if sent == VIDEO_FPS * 2:
+                        report("5. screen sent by our own capture (no picker)", True, f"{sent} pictures")
+                except Exception as e:  # noqa: BLE001
+                    report("5. screen sent by our own capture (no picker)", False, f"{type(e).__name__}: {e}")
+            await asyncio.sleep(max(0, 1 / VIDEO_FPS - (time.monotonic() - t0)))
+
     asyncio.create_task(sender())
+    asyncio.create_task(video_sender())
     print("Ready. From your phone, call this Telegram account, OR send it the message: call")
     print("(then it calls you). Ctrl+C here stops the test.\n")
     try:
