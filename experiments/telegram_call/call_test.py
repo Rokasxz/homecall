@@ -16,15 +16,18 @@ account's phone number and the code Telegram sends, which only you type):
     .venv-tgcall/bin/python experiments/telegram_call/call_test.py
 
 Needs in .env (private): TG_API_ID, TG_API_HASH (my.telegram.org, logged in with the
-Home PC account) and TG_ALLOWED (your own Telegram @username, the only one it answers).
+Home PC account) and TG_ALLOWED (YOUR Telegram @username or numeric id, the only caller it
+answers; not the Home PC account's own).
 """
 import asyncio
 import inspect
+import logging
 import math
 import os
 import struct
 import sys
 import time
+import traceback
 import wave
 from collections import deque
 from pathlib import Path
@@ -35,6 +38,12 @@ RATE, CHANNELS = 48000, 2                     # what the call library sends and 
 FRAME_BYTES = RATE * 2 * CHANNELS // 100      # 10 ms of 16-bit stereo = 1920 bytes
 ECHO_DELAY_FRAMES = 100                       # 1 s
 results: dict[str, str] = {}
+LOG = HERE / "debug.log"   # every step of the call library, to find bugs (private, gitignored)
+logging.basicConfig(filename=str(LOG), filemode="w", level=logging.DEBUG,
+                    format="%(asctime)s %(name)s %(levelname)s %(message)s")
+for noisy in ("telethon.network", "telethon.extensions", "asyncio"):
+    logging.getLogger(noisy).setLevel(logging.WARNING)
+log = logging.getLogger("call_test")
 
 
 def env(name: str) -> str:
@@ -51,6 +60,9 @@ def report(step: str, ok: bool, detail: str = "") -> None:
         return
     results[step] = "PASS" if ok else "FAIL"
     print(f"  {'PASS' if ok else 'FAIL'}  {step}" + (f"  ->  {detail}" if detail else ""), flush=True)
+    log.info("%s %s %s", results[step], step, detail)
+    if not ok:
+        log.error(traceback.format_exc())
 
 
 async def done(x):
@@ -80,7 +92,7 @@ def level(pcm: bytes) -> int:
 
 
 async def main() -> None:
-    from telethon import TelegramClient
+    from telethon import TelegramClient, events
     from pytgcalls import MediaDevices, PyTgCalls, filters
     from pytgcalls.types import (AudioQuality, ChatUpdate, Device, Direction, ExternalMedia, MediaStream,
                                  RecordStream, StreamFrames, VideoQuality)
@@ -93,8 +105,10 @@ async def main() -> None:
     client = TelegramClient(str(HERE / "homepc"), int(api_id), api_hash)  # homepc.session: private, gitignored
     await client.start()  # first time: asks for the phone number and the login code (you type them)
     me = await client.get_me()
-    owner = await client.get_entity(allowed)
-    print(f"\nHome PC account: {me.first_name} (@{me.username or '-'}). Answers calls only from @{allowed}.")
+    owner_id = int(allowed) if allowed.isdigit() else (await client.get_entity(allowed)).id
+    if owner_id == me.id:
+        sys.exit(f"TG_ALLOWED is this PC's OWN account (@{me.username}). Put the account you call FROM in .env.")
+    print(f"\nHome PC account: {me.first_name} (@{me.username or '-'}). Answers calls only from {allowed}.")
     calls = PyTgCalls(client)
     await done(calls.start())
 
@@ -108,25 +122,49 @@ async def main() -> None:
 
     @calls.on_update(filters.chat_update(ChatUpdate.Status.INCOMING_CALL))
     async def incoming(_, update: ChatUpdate) -> None:
-        if update.chat_id != owner.id:
-            print(f"  (ignored a call from someone else: {update.chat_id})")
+        if update.chat_id != owner_id:
+            try:
+                who = await client.get_entity(update.chat_id)
+                who = f"{who.first_name} (@{who.username or '-'})"
+            except Exception:  # noqa: BLE001
+                who = "unknown"
+            print(f"  (ignored a call from someone else: {who}, id {update.chat_id}. "
+                  f"If that's you, put TG_ALLOWED={update.chat_id} in .env)")
             return
         print("\nYour call is coming in...")
+        await connect(update.chat_id, "1. call answered")
+
+    async def connect(chat_id: int, step: str) -> None:
+        """Answer (incoming) or place (outgoing) the call with the screen as video and our own sound."""
         stream = MediaStream(screens[0], audio_parameters=AudioParameters(bitrate=RATE, channels=CHANNELS),
                              video_parameters=VideoQuality.HD_720p, audio_path=ExternalMedia.AUDIO)
         try:
-            await done(calls.play(update.chat_id, stream))
-            report("1. call answered", True)
+            await done(calls.play(chat_id, stream))
+            report(step, True)
             report("2. screen shared as the call's video", True, "look at your phone: you should see this screen")
         except Exception as e:  # noqa: BLE001
-            report("1. call answered", False, f"{type(e).__name__}: {e}")
+            report(step, False, f"{type(e).__name__}: {e}  (details: {LOG.name})")
             return
         try:
-            await done(calls.record(update.chat_id, RecordStream(True, AudioQuality.HIGH)))
+            await done(calls.record(chat_id, RecordStream(True, AudioQuality.HIGH)))
         except Exception as e:  # noqa: BLE001
             report("3. PC hears you", False, f"recording didn't start: {type(e).__name__}: {e}")
-        state["chat"] = update.chat_id
+        state["chat"] = chat_id
         out_queue.extend(chime_frames)
+
+    @client.on(events.NewMessage(from_users=owner_id))
+    async def call_me(event) -> None:
+        """Other way round: send "call" to the Home PC account in Telegram and it calls YOU."""
+        if event.raw_text.strip().lower() in ("call", "call me", "skambink"):
+            print("\nYou asked me to call you: calling...")
+            await event.reply("Calling you now...")
+            await connect(owner_id, "1. PC called you")
+
+    @client.on(events.Raw)
+    async def raw(update) -> None:  # the order of Telegram's call events, for debug.log
+        name = type(update).__name__
+        if "PhoneCall" in name:
+            log.info("RAW %s %s", name, type(getattr(update, "phone_call", None)).__name__)
 
     @calls.on_update(filters.stream_frame(Direction.INCOMING, Device.MICROPHONE))
     async def your_voice(_, update: StreamFrames) -> None:
@@ -169,7 +207,8 @@ async def main() -> None:
                 report("4. PC sends sound", False, f"{type(e).__name__}: {e}")
 
     asyncio.create_task(sender())
-    print("Ready. From your phone, call this Telegram account. Ctrl+C here stops the test.\n")
+    print("Ready. From your phone, call this Telegram account, OR send it the message: call")
+    print("(then it calls you). Ctrl+C here stops the test.\n")
     try:
         await asyncio.Event().wait()
     finally:
