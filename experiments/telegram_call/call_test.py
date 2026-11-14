@@ -41,7 +41,7 @@ results: dict[str, str] = {}
 LOG = HERE / "debug.log"   # every step of the call library, to find bugs (private, gitignored)
 logging.basicConfig(filename=str(LOG), filemode="w", level=logging.DEBUG,
                     format="%(asctime)s %(name)s %(levelname)s %(message)s")
-for noisy in ("telethon.network", "telethon.extensions", "asyncio"):
+for noisy in ("pyrogram.session", "pyrogram.connection", "pyrogram.dispatcher", "asyncio"):
     logging.getLogger(noisy).setLevel(logging.WARNING)
 log = logging.getLogger("call_test")
 
@@ -92,7 +92,8 @@ def level(pcm: bytes) -> int:
 
 
 async def main() -> None:
-    from telethon import TelegramClient, events
+    from pyrogram import Client
+    from pyrogram import filters as pf
     from pytgcalls import MediaDevices, PyTgCalls, filters
     from pytgcalls.types import (AudioQuality, ChatUpdate, Device, Direction, ExternalMedia, MediaStream,
                                  RecordStream, StreamFrames, VideoQuality)
@@ -102,10 +103,12 @@ async def main() -> None:
     if not (api_id and api_hash and allowed):
         sys.exit("Missing in .env: TG_API_ID, TG_API_HASH and TG_ALLOWED (see the top of this file).")
 
-    client = TelegramClient(str(HERE / "homepc"), int(api_id), api_hash)  # homepc.session: private, gitignored
+    # Pyrogram (the call library's own version): it follows Telegram's switch of 1:1 calls to the new
+    # conference-call format. With Telethon the library took that switch for "declined" and hung up.
+    client = Client("homepc_pyrogram", api_id=int(api_id), api_hash=api_hash, workdir=str(HERE))
     await client.start()  # first time: asks for the phone number and the login code (you type them)
     me = await client.get_me()
-    owner_id = int(allowed) if allowed.isdigit() else (await client.get_entity(allowed)).id
+    owner_id = int(allowed) if allowed.isdigit() else (await client.get_users(allowed)).id
     if owner_id == me.id:
         sys.exit(f"TG_ALLOWED is this PC's OWN account (@{me.username}). Put the account you call FROM in .env.")
     print(f"\nHome PC account: {me.first_name} (@{me.username or '-'}). Answers calls only from {allowed}.")
@@ -124,7 +127,7 @@ async def main() -> None:
     async def incoming(_, update: ChatUpdate) -> None:
         if update.chat_id != owner_id:
             try:
-                who = await client.get_entity(update.chat_id)
+                who = await client.get_users(update.chat_id)
                 who = f"{who.first_name} (@{who.username or '-'})"
             except Exception:  # noqa: BLE001
                 who = "unknown"
@@ -152,19 +155,25 @@ async def main() -> None:
         state["chat"] = chat_id
         out_queue.extend(chime_frames)
 
-    @client.on(events.NewMessage(from_users=owner_id))
-    async def call_me(event) -> None:
+    @client.on_message(pf.private & pf.user(owner_id) & pf.text)
+    async def call_me(_, message) -> None:
         """Other way round: send "call" to the Home PC account in Telegram and it calls YOU."""
-        if event.raw_text.strip().lower() in ("call", "call me", "skambink"):
+        if message.text.strip().lower() in ("call", "call me", "skambink"):
             print("\nYou asked me to call you: calling...")
-            await event.reply("Calling you now...")
+            await message.reply("Calling you now...")
             await connect(owner_id, "1. PC called you")
 
-    @client.on(events.Raw)
-    async def raw(update) -> None:  # the order of Telegram's call events, for debug.log
+    @client.on_raw_update()
+    async def raw(_, update, users, chats) -> None:  # the order of Telegram's call events, for debug.log
         name = type(update).__name__
-        if "PhoneCall" in name:
-            log.info("RAW %s %s", name, type(getattr(update, "phone_call", None)).__name__)
+        if "PhoneCall" in name or "GroupCall" in name:
+            call = getattr(update, "phone_call", None)
+            log.info("RAW %s %s reason=%s", name, type(call).__name__,
+                     type(getattr(call, "reason", None)).__name__)
+
+    @calls.on_update(filters.chat_update(ChatUpdate.Status.MIGRATE_TO_CONFERENCE_CALL))
+    async def moved(_, update: ChatUpdate) -> None:
+        print("  (Telegram moved the call to its new conference format: following it)", flush=True)
 
     @calls.on_update(filters.stream_frame(Direction.INCOMING, Device.MICROPHONE))
     async def your_voice(_, update: StreamFrames) -> None:
