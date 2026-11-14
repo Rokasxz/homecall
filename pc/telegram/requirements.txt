@@ -1,0 +1,7 @@
+# Only for the Telegram part (its own setup, .venv-tgcall), not the team's requirements.txt.
+py-tgcalls[pyrogram]==3.0.0
+ntgcalls==3.0.7
+numpy
+mss
+pillow
+websockets
