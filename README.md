@@ -47,7 +47,8 @@ Set it up once:
 1. A Telegram account for the PC, on a spare SIM (not your own number).
 2. https://my.telegram.org -> API development tools -> create an app; in `.env`:
    `TG_API_ID=...`, `TG_API_HASH=...` and `TG_ALLOWED=@your_username` (YOUR account, the only
-   one it answers; not the PC's).
+   one it answers; not the PC's). Several people: `TG_ALLOWED=@you,@friend`; it talks to one at a
+   time, the others get "busy", and each person gets a fresh conversation.
 3. Its own Python setup, then log the PC account in (type its phone number and the code):
    ```
    python -m venv .venv-tgcall
