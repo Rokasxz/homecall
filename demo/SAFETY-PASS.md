@@ -172,3 +172,22 @@ the PC itself (refuses tunnel/proxy headers and other host names, so no
 DNS-rebinding). `/pc/fix/<key>` only opens known System Settings pages (a web
 page on the PC could trigger it, but it can only open those pages: low).
 Guarded by tests in `test_safety.py`.
+
+---
+
+# Safety pass #8 — Telegram (#65: text or call your PC in Telegram)
+
+Good: only private messages/calls from `TG_ALLOWED` are handled
+(`pf.private & pf.user(owner)`, calls checked by chat/user id); it refuses to run
+if `TG_ALLOWED` is the Home PC account itself; the Telegram login files
+(`pc/telegram/*.session*`) are gitignored and none are committed; it uses the
+same doors as the phone (/ws with the pairing code), so Brain, Hands and their
+Yes/No are unchanged.
+
+| # | Finding | Who | Status |
+|---|---|---|---|
+| 20 | **"yes" matched by prefix**: while a Yes/No is pending, `low.startswith("yes")` makes "yesterday's one, not that" a YES (a delete or program run goes ahead). | Lead (Telegram) | New, medium |
+| 21 | `TG_ALLOWED` as an @username: usernames can be released and taken by someone else, who would be allowed after the next restart. Use the numeric id. | Lead (Telegram) | New, low |
+| 22 | Design: the Telegram route needs no pairing code; the owner's Telegram account is the key, and Yes/No questions go to that same chat (no second factor). Anyone with a logged-in Telegram session of the owner controls the PC. | Lead | Note for the pitch / README |
+
+Not covered by automated tests: pc/telegram needs its own venv (.venv-tgcall).
