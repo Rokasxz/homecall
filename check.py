@@ -176,7 +176,8 @@ def check_telegram_pairing():
     code = "731676"
     right = all(people.is_pairing_code(t, code) for t in ("connect 731676", "731676", "731 676", " Connect 731-676 "))
     wrong = not any(people.is_pairing_code(t, code) for t in
-                    ("connect 731677", "connect", "", "hello", "731676731676", "0123456789731676", "connect 731676 now"))
+                    ("connect 731677", "connect", "", "hello", "731676731676", "0123456789731676", "connect 731676 now",
+                     "What\u2019s on my desktop?", "atidaryk \u017eaidim\u0105 \U0001f600"))
     (ok if right else fail)("the code from the QR connects (\"connect 731676\", \"731 676\")")
     (ok if wrong else fail)("a wrong code, or a message full of numbers, doesn't")
     guard = people.Guard()

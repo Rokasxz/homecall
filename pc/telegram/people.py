@@ -48,7 +48,8 @@ def is_pairing_code(text: str, code: str) -> bool:
     words = text.strip().lower().split()
     if words and words[0] in PAIR_WORDS:
         words = words[1:]
-    return hmac.compare_digest("".join(words).replace("-", ""), code)
+    # As bytes: compare_digest refuses text with letters like ’ ą or emoji (and the handler would crash).
+    return hmac.compare_digest("".join(words).replace("-", "").encode(), code.encode())
 
 
 def looks_like_a_code(text: str) -> bool:
