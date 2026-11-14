@@ -148,4 +148,34 @@ def search_in_files(text: str) -> str:
     return f"{len(hits)} document(s) mention '{text}'{note}:\n" + "\n".join(hits)
 
 
+def warm_up(pause: float = 0.03) -> int:
+    """Read the documents into memory ahead of time, so the first search_in_files is fast. Returns files read."""
+    done = 0
+    for p in _walk_files():
+        if p.suffix.lower() not in SEARCHABLE:
+            continue  # documents only: never photos
+        try:
+            st = p.stat()
+            if st.st_size <= MAX_FILE_BYTES:
+                _text_of(p, st.st_size, st.st_mtime)
+                done += 1
+        except Exception:  # noqa: BLE001
+            pass
+        if done >= MAX_FILES_READ:
+            break
+        time.sleep(pause)  # small pauses so the live screen isn't slowed down
+    return done
+
+
+def start_warm_up_if_app() -> bool:
+    """Start warm_up in the background, but only when the app itself runs (python -m pc.server)."""
+    import sys
+    import threading
+    spec = getattr(sys.modules.get("__main__"), "__spec__", None)
+    if getattr(spec, "name", "") != "pc.server":
+        return False  # tests, check.py, try_tools: don't read the real folders
+    threading.Thread(target=warm_up, name="homecall-search-warmup", daemon=True).start()
+    return True
+
+
 TOOLS = [find_recent_files, search_in_files]

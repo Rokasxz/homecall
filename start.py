@@ -248,9 +248,9 @@ def start_tunnel() -> tuple[subprocess.Popen | None, str | None, str]:
         return proc, found["url"], ""
     proc.terminate()
     if found["blocked"]:
-        return None, None, ("This network blocks the tunnel (port 7844). Connect this computer to your "
-                            "phone's hotspot and run start.py again. Meanwhile it works on this computer only.")
-    return None, None, "The tunnel didn't start in 40 s. Check your internet and run start.py again."
+        return None, None, ("This Wi-Fi blocks the tunnel (port 7844). Connect this computer to your "
+                            "phone's hotspot (turn off Auto-Join for this Wi-Fi), then start HomeCall again.")
+    return None, None, "The tunnel didn't start in 40 s. Check the internet, then start HomeCall again."
 
 
 # -------------------------------------------------------------------- voice ---
@@ -304,11 +304,30 @@ LOG = ROOT / "homecall.log"  # the server's log (gitignored: it holds the pairin
 
 # ------------------------------------------------------------------- server ---
 
-def start_server(url: str | None) -> tuple[subprocess.Popen, str | None]:
+def start_telegram(code: str) -> tuple[subprocess.Popen | None, str]:
+    """The PC's own Telegram account (pc/telegram/home_pc.py): text it, or write "call" and it calls you."""
+    env = read_env()
+    if not all(env.get(k) for k in ("TG_API_ID", "TG_API_HASH", "TG_ALLOWED")):
+        return None, "off (no Home PC Telegram account set up)"
+    py = ROOT / ".venv-tgcall" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+    if not py.exists():
+        return None, ("off: make its Python setup once: python -m venv .venv-tgcall, then "
+                      ".venv-tgcall/bin/pip install -r pc/telegram/requirements.txt")
+    if not (ROOT / "pc" / "telegram" / "homepc.session").exists():
+        return None, f"off: log in once: {py.relative_to(ROOT)} -m pc.telegram.home_pc --login"
+    out = open(ROOT / "homecall-telegram.log", "w", encoding="utf-8")
+    proc = subprocess.Popen([str(py), "-m", "pc.telegram.home_pc"], cwd=ROOT, stdout=out, stderr=subprocess.STDOUT,
+                            env=dict(os.environ, HOMECALL_CODE=code, HOMECALL_PORT=str(PORT),
+                                     PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8"))
+    return proc, "on: text the Home PC account in Telegram, or write it \"call\" (log: homecall-telegram.log)"
+
+
+def start_server(url: str | None, tunnel_note: str = "") -> tuple[subprocess.Popen, str | None]:
     # UTF-8 both ways: Windows' own encoding can't print e.g. "ž" and the server would crash.
     env = dict(os.environ, PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8",
                HOMECALL_LOG_LEVEL="info",          # each visit -> homecall.log
-               HOMECALL_PUBLIC_URL=url or "")      # for the QR code in the PC window
+               HOMECALL_PUBLIC_URL=url or "",      # for the QR code in the PC window
+               HOMECALL_TUNNEL_NOTE=tunnel_note)   # why there's no address, for the PC window
     proc = subprocess.Popen([sys.executable, "-m", "pc.server"], cwd=ROOT, env=env,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             text=True, encoding="utf-8", errors="replace")
@@ -348,7 +367,8 @@ def main() -> None:
 
     tunnel, url, tunnel_note = (None, None, "local only (--local)") if local_only else start_tunnel()
     voice = setup_voice(url) if url else "off (needs the tunnel)"
-    server, code = start_server(url)
+    server, code = start_server(url, tunnel_note)
+    telegram, telegram_note = start_telegram(code) if code else (None, "off")
     if not code:
         say("\nThe app didn't start. Run `python check.py` to see why.")
         if tunnel:
@@ -368,6 +388,7 @@ def main() -> None:
     say(f"  Allowed on this PC:         {allowed}")
     say(f"  Brain:  {brain_line(env)}")
     say(f"  Voice:  {voice}")
+    say(f"  Telegram: {telegram_note}")
     if keys_note:
         say(f"  Keys:   {keys_note}")
     say("  Log:    homecall.log (each phone visit; private: never post it)")
@@ -383,7 +404,7 @@ def main() -> None:
     except KeyboardInterrupt:
         say("\nStopping...")
     finally:
-        for p in (server, tunnel):
+        for p in (server, tunnel, telegram):
             if p and p.poll() is None:
                 p.terminate()
 
