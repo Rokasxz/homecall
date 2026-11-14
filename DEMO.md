@@ -18,7 +18,8 @@
 3. **"Find my CV and send it to me."** A download card appears on the phone.
 4. **"Open Calculator."** Everyone sees it open on the live screen.
 5. **"Delete the old draft."** A **Yes/No** card appears first. Tap **No**: "cancelled". (Safety: risky things always ask.)
-6. Bonus, Telegram: write to the Home PC account "what's on my desktop", then **call**. If the phone
+6. Bonus, Telegram: first time only, scan the **Telegram QR** in the PC window and tap **Send**
+   ("✅ Connected"). Then write to the Home PC account "what's on my desktop", then **call**. If the phone
    shows the call as missed, tap the camera icon on the call message to join.
 
 ## If something goes wrong
@@ -39,7 +40,7 @@ Record **the phone and the laptop at the same time**, then put them side by side
 |---|---|---|
 | 1. The voice call (main one) | 60-90 s | Scan the QR, Voice call, "What's on my desktop?", "Find my CV and send it to me" (tap the download), "Open Calculator", "Delete the old draft" -> Yes/No -> No |
 | 2. Telegram | 45-60 s | Write "What's on my desktop?" to the Home PC, then "call", join, say "Open Calculator" while the screen shows in the call |
-| 3. Setup in 30 s | 30 s | Double-click HomeCall, the PC window with the QR code, scan it, "Connected to your PC" |
+| 3. Setup in 30 s | 30 s | Double-click HomeCall, the PC window with the Telegram QR, scan it, tap Send, "✅ Connected" |
 
 How to record:
 - **Phone (iPhone):** Control Center -> Screen Recording (long-press it and turn the **Microphone on**, so your voice is in it).
