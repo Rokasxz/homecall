@@ -18,11 +18,11 @@ class ScreenVideo:
     voice calls), so only ONE program takes screenshots: on a Mac, two programs capturing at the
     same time can lock up screenshots for everyone."""
 
-    def __init__(self, fetch_jpeg) -> None:
+    def __init__(self, fetch_jpeg, width: int = 720) -> None:
         self._fetch = fetch_jpeg               # () -> JPEG bytes of the screen
         w, h = self._picture().size
-        self.width = w - w % 2
-        self.height = h - h % 2
+        self.width = min(width, w) // 2 * 2    # smaller video = less upload, fewer frozen pictures
+        self.height = int(self.width * h / w) // 2 * 2
 
     def _picture(self):
         import io
