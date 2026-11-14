@@ -27,3 +27,7 @@ node_modules/
 experiments/telegram_call/*.session*
 experiments/telegram_call/*.wav
 experiments/telegram_call/*.log
+
+# Telegram part: the Home PC account's login and its log (private)
+pc/telegram/*.session*
+homecall-telegram.log
