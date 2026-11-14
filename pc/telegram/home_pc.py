@@ -207,9 +207,11 @@ class VoiceCall:
 class HomePC:
     def __init__(self) -> None:
         self.code = pairing_code()
-        allowed = env("TG_ALLOWED").lstrip("@")
-        self.owner_name = "" if allowed.isdigit() else allowed  # an @username: looked up after login
-        self.owner = int(allowed) if allowed.isdigit() else 0
+        # TG_ALLOWED: one or more Telegram accounts (numeric ids or @usernames, comma-separated).
+        self.allowed_raw = [x.strip().lstrip("@") for x in env("TG_ALLOWED").split(",") if x.strip()]
+        self.allowed: set[int] = set()  # filled in after login (usernames are looked up)
+        self.owner = 0                   # who the PC is talking to now (one person at a time)
+        self._busy_since = 0.0           # a request is being worked on for self.owner
         self.client = self.calls = self.video = None
         self.link = PhoneLink(self)
         self.pending: str | None = None  # Yes/No question waiting for your answer (its id)
@@ -230,6 +232,7 @@ class HomePC:
             await self.client.send_chat_action(self.owner, enums.ChatAction.TYPING)
         elif kind == "reply":
             self.pending = None  # answered, or HomeCall stopped waiting (it waits 60 s)
+            self._busy_since = 0.0
             await self.say(msg.get("text") or "Done.")
         elif kind == "confirm":
             self.pending = msg.get("id")
@@ -238,6 +241,7 @@ class HomePC:
             await self.send_file(msg.get("name", "file"), msg.get("url", ""))
         elif kind == "error":
             self.pending = None
+            self._busy_since = 0.0
             await self.say(f"⚠️ {msg.get('text')}")
 
     async def send_file(self, name: str, url: str) -> None:
@@ -276,9 +280,31 @@ class HomePC:
                 await self.say("⚠️ HomeCall isn't running on the PC. Start it first.")
                 return
             try:
+                self._busy_since = time.time()
                 await self.link.say(text)
             except Exception as e:  # noqa: BLE001
+                self._busy_since = 0.0
                 await self.say(f"⚠️ Can't reach HomeCall on the PC ({e}). Is it running?")
+
+    async def _take_turn(self, who: int) -> bool:
+        """One person at a time: talk to `who` now, unless the PC is busy with someone else."""
+        if who == self.owner:
+            return True
+        busy = (self.call or self._starting or self.pending
+                or (self._busy_since and time.time() - self._busy_since < 180))
+        if busy:
+            await self.client.send_message(who, "\u23f3 The PC is busy with someone else right now. "
+                                                "Try again in a minute.")
+            return False
+        self.owner = who
+        if self.link.ws is not None:  # a fresh conversation for the new person (they don't see each other's)
+            ws, self.link.ws = self.link.ws, None
+            try:
+                await ws.send(json.dumps({"type": "hangup"}))
+                await ws.close()
+            except Exception:  # noqa: BLE001
+                pass
+        return True
 
     async def on_voice_note(self, message) -> None:
         note = await self.client.download_media(message, in_memory=True)
@@ -523,42 +549,48 @@ class HomePC:
         from pytgcalls.types import ChatUpdate, Device, Direction, GroupCallParticipant
 
         api_id, api_hash = env("TG_API_ID"), env("TG_API_HASH")
-        if not (api_id and api_hash and (self.owner or self.owner_name)):
+        if not (api_id and api_hash and self.allowed_raw):
             sys.exit("Telegram: TG_API_ID, TG_API_HASH and TG_ALLOWED are missing in .env.")
         self.client = Client("homepc", api_id=int(api_id), api_hash=api_hash, workdir=str(HERE))
         await self.client.start()  # the first time (--login): asks for the phone number and the code
         me = await self.client.get_me()
-        if self.owner_name:
-            self.owner = (await self.client.get_users(self.owner_name)).id
+        for who in self.allowed_raw:
+            uid = int(who) if who.isdigit() else (await self.client.get_users(who)).id
+            self.allowed.add(uid)
+            self.owner = self.owner or uid  # the first one listed, until someone writes
         if login_only:
             print(f"Logged in as {me.first_name}. HomeCall's start.py now starts the Telegram part by itself.")
             await self.client.stop()
             return
-        if me.id == self.owner:
-            sys.exit("TG_ALLOWED is the Home PC account itself: put YOUR Telegram account's id in .env.")
-        try:
-            await self.client.add_contact(self.owner, first_name="Owner")  # Telegram hides calls from strangers
-        except Exception:  # noqa: BLE001
-            pass
+        if me.id in self.allowed:
+            sys.exit("TG_ALLOWED contains the Home PC account itself: put YOUR Telegram account in .env.")
+        for uid in self.allowed:
+            try:
+                await self.client.add_contact(uid, first_name="Owner")  # Telegram hides calls from strangers
+            except Exception:  # noqa: BLE001
+                pass
         self.calls = PyTgCalls(self.client)
         await done(self.calls.start())
 
-        owner_only = pf.private & pf.user(self.owner)
+        owner_only = pf.private & pf.user(list(self.allowed))
 
         @self.client.on_message(owner_only & pf.text)
         async def text(_, message) -> None:
-            await self.on_text(message.text)
+            if await self._take_turn(message.from_user.id):
+                await self.on_text(message.text)
 
         @self.client.on_message(owner_only & (pf.voice | pf.audio))
         async def voice_note(_, message) -> None:
-            await self.on_voice_note(message)
+            if await self._take_turn(message.from_user.id):
+                await self.on_voice_note(message)
 
         @self.calls.on_update(cf.chat_update(ChatUpdate.Status.INCOMING_CALL))
         async def incoming(_, update) -> None:
             """You called the Home PC: pick up (if that fails, it calls you back)."""
-            if update.chat_id != self.owner:
+            if update.chat_id not in self.allowed or self.call or self._starting:
                 return
-            await self.start_call(answer=True)
+            if await self._take_turn(update.chat_id):
+                await self.start_call(answer=True)
 
         @self.calls.on_update(cf.call_participant(GroupCallParticipant.Action.JOINED))
         async def joined(_, update) -> None:
