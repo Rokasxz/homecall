@@ -270,7 +270,8 @@ class HomePC:
         await self.on_text(text)
 
     # ----------------------------------------------------------- voice call ---
-    async def start_call(self) -> None:
+    async def start_call(self, answer: bool = False) -> None:
+        """answer=True: pick up YOUR call (you called the Home PC). Else call you (conference-style)."""
         from pytgcalls.types import AudioQuality, CallConfig, ExternalMedia, MediaStream, RecordStream
         from pytgcalls.types.raw import AudioParameters, VideoParameters
         if self.call:
@@ -293,21 +294,38 @@ class HomePC:
             self.call = None
             await self.say(f"\u26a0\ufe0f Couldn't get the PC's screen ({e}).")
             return
-        print(f"Calling you... (screen {self.video.width}x{self.video.height})", flush=True)
+        print(f"{'Picking up' if answer else 'Calling you'}... (screen {self.video.width}x{self.video.height})",
+              flush=True)
         stream = MediaStream(ExternalMedia.VIDEO,
                              audio_parameters=AudioParameters(bitrate=CALL_RATE, channels=CALL_CHANNELS),
                              video_parameters=VideoParameters(width=self.video.width, height=self.video.height,
                                                               frame_rate=VIDEO_FPS),
                              audio_path=ExternalMedia.AUDIO)
         try:
-            # Conference-style: how current Telegram apps call (the old 1:1 call gets refused).
-            await done(self.calls.play(self.owner, stream, CallConfig(conference=True)))
+            # Answering: your own call. Calling: conference-style, how current Telegram apps call
+            # (your phone refuses the old 1:1 call from the PC at once).
+            await done(self.calls.play(self.owner, stream, None if answer else CallConfig(conference=True)))
             await done(self.calls.record(self.owner, RecordStream(True, AudioQuality.HIGH)))
         except Exception as e:  # noqa: BLE001
             log.exception("call failed")
             self.call = None
-            await self.say(f"⚠️ Couldn't call you: {type(e).__name__}: {e}")
+            if answer:  # couldn't pick up: call you back instead (that works)
+                print("Couldn't pick up, calling back instead.", flush=True)
+                await asyncio.sleep(1.5)
+                await self.start_call()
+                return
+            if type(e).__name__ == "TelegramServerError":
+                await self.say("⚠️ Couldn't reach Telegram's call servers from the PC's network "
+                               "(some Wi-Fi blocks them). Connect the PC to a phone hotspot and try again.")
+            else:
+                await self.say(f"⚠️ Couldn't call you: {type(e).__name__}: {e}")
             return
+        if answer:
+            call.joined.set()  # you started the call, so you're already there
+        else:
+            # Telegram marks the PC's invitation "missed" on your phone at once, but the call is there.
+            await self.say("📞 Calling you. If your phone shows the call as failed or missed, tap the "
+                           "camera icon on the call message to join.")
         call.tasks = [asyncio.create_task(t) for t in (self._sound_out(call), self._video_out(call),
                                                         self._agent(call), self._news(call), self._files(call))]
 
@@ -482,15 +500,10 @@ class HomePC:
 
         @self.calls.on_update(cf.chat_update(ChatUpdate.Status.INCOMING_CALL))
         async def incoming(_, update) -> None:
-            """You called the Home PC: hang that up and call you back the way that works (conference)."""
+            """You called the Home PC: pick up (if that fails, it calls you back)."""
             if update.chat_id != self.owner:
                 return
-            try:
-                await done(self.calls.leave_call(update.chat_id))
-            except Exception:  # noqa: BLE001
-                pass
-            await asyncio.sleep(1.5)
-            await self.start_call()
+            await self.start_call(answer=True)
 
         @self.calls.on_update(cf.call_participant(GroupCallParticipant.Action.JOINED))
         async def joined(_, update) -> None:

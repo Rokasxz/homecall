@@ -31,3 +31,4 @@ experiments/telegram_call/*.log
 # Telegram part: the Home PC account's login and its log (private)
 pc/telegram/*.session*
 homecall-telegram.log
+unknown_errors.txt
