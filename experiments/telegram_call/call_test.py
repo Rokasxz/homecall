@@ -95,8 +95,8 @@ async def main() -> None:
     from pyrogram import Client
     from pyrogram import filters as pf
     from pytgcalls import MediaDevices, PyTgCalls, filters
-    from pytgcalls.types import (AudioQuality, ChatUpdate, Device, Direction, ExternalMedia, MediaStream,
-                                 RecordStream, StreamFrames, VideoQuality)
+    from pytgcalls.types import (AudioQuality, CallConfig, ChatUpdate, Device, Direction, ExternalMedia,
+                                 MediaStream, RecordStream, StreamFrames, VideoQuality)
     from pytgcalls.types.raw import AudioParameters
 
     api_id, api_hash, allowed = env("TG_API_ID"), env("TG_API_HASH"), env("TG_ALLOWED").lstrip("@")
@@ -144,12 +144,16 @@ async def main() -> None:
         print("\nYour call is coming in...")
         await connect(update.chat_id, "1. call answered")
 
-    async def connect(chat_id: int, step: str) -> None:
-        """Answer (incoming) or place (outgoing) the call with the screen as video and our own sound."""
+    async def connect(chat_id: int, step: str, conference: bool = False) -> None:
+        """Answer (incoming) or place (outgoing) the call with the screen as video and our own sound.
+
+        conference=True places the call the way current Telegram apps do: a (1:1) conference call that
+        invites you. Your phone refused the old-style 1:1 call at once ("missed" within 4 ms).
+        """
         stream = MediaStream(screens[0], audio_parameters=AudioParameters(bitrate=RATE, channels=CHANNELS),
                              video_parameters=VideoQuality.HD_720p, audio_path=ExternalMedia.AUDIO)
         try:
-            await done(calls.play(chat_id, stream))
+            await done(calls.play(chat_id, stream, CallConfig(conference=True) if conference else None))
             report(step, True)
             report("2. screen shared as the call's video", True, "look at your phone: you should see this screen")
         except Exception as e:  # noqa: BLE001
@@ -165,10 +169,12 @@ async def main() -> None:
     @client.on_message(pf.private & pf.user(owner_id) & pf.text)
     async def call_me(_, message) -> None:
         """Other way round: send "call" to the Home PC account in Telegram and it calls YOU."""
-        if message.text.strip().lower() in ("call", "call me", "skambink"):
-            print("\nYou asked me to call you: calling...")
+        text = message.text.strip().lower()
+        if text in ("call", "call me", "skambink", "call old"):
+            new_style = text != "call old"
+            print(f"\nYou asked me to call you: calling ({'new conference-style' if new_style else 'old 1:1'} call)...")
             await message.reply("Calling you now...")
-            await connect(owner_id, "1. PC called you")
+            await connect(owner_id, "1. PC called you", conference=new_style)
 
     @client.on_raw_update()
     async def raw(_, update, users, chats) -> None:  # the order of Telegram's call events, for debug.log
