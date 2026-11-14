@@ -32,3 +32,9 @@ experiments/telegram_call/*.log
 pc/telegram/*.session*
 homecall-telegram.log
 unknown_errors.txt
+
+# Demo videos (big files, not for git)
+recordings/
+pc/telegram/people.json
+pc/telegram/live.json
+pc/telegram/*.json.tmp

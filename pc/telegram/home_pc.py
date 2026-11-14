@@ -11,13 +11,13 @@ Runs the PC's own Telegram account ("Home PC") next to HomeCall (start.py starts
 It is a second "phone" for HomeCall: it talks to the HomeCall server running on this PC
 through the same doors as the web page (/ws, /voice/call/start, /voice/call/news,
 /voice/call/files, /voice/transcribe), so the Brain, the Hands and the voice agent are the same.
-Only YOUR Telegram account (TG_ALLOWED) can use it.
+Only the accounts you allow can use it: connect yours by scanning the Telegram QR code in the
+PC window (it sends this start's pairing code; pc/telegram/people.py), or list them in TG_ALLOWED.
 
     .venv-tgcall/bin/python -m pc.telegram.home_pc --login   once: log the Home PC account in
     .venv-tgcall/bin/python -m pc.telegram.home_pc           run (start.py does this for you)
 
-Needs: .venv-tgcall with pc/telegram/requirements.txt, and TG_API_ID, TG_API_HASH, TG_ALLOWED
-in .env. Telegram calls need UDP to Telegram's call servers: some Wi-Fi (like the venue's)
+Needs: .venv-tgcall with pc/telegram/requirements.txt, and TG_API_ID, TG_API_HASH in .env. Telegram calls need UDP to Telegram's call servers: some Wi-Fi (like the venue's)
 blocks it; then use the phone's hotspot.
 """
 import asyncio
@@ -36,6 +36,7 @@ import uuid
 from collections import deque
 from pathlib import Path
 
+from pc.telegram import people
 from pc.telegram.media import (CALL_CHANNELS, CALL_RATE, SILENCE, ScreenVideo, agent_to_call, call_to_agent,
                                rate_of)
 
@@ -51,6 +52,11 @@ CALL_WORDS = {"call", "call me", "skambink", "paskambink", "video", "videocall"}
 HANGUP_WORDS = {"hang up", "hangup", "stop", "end", "bye", "baik"}
 YES = {"yes", "y", "yeah", "yep", "ok", "okay", "sure", "do it", "taip", "gerai", "jo"}
 NO = {"no", "n", "nope", "cancel", "don't", "dont", "ne", "nereikia"}
+CONNECTED = ("\u2705 Connected to {pc}. Now just write what you want done on the PC, like "
+             "\"What's on my desktop?\" or \"Send me my CV\". Write \"call\" for a video call: "
+             "you see the screen and talk to it.")
+HOW_TO_CONNECT = ("\U0001f44b This is a private Home PC. To connect, scan the Telegram QR code in the "
+                  "HomeCall window on the PC, then tap Send.")
 
 log = logging.getLogger("home_pc")
 
@@ -207,9 +213,18 @@ class VoiceCall:
 class HomePC:
     def __init__(self) -> None:
         self.code = pairing_code()
-        # TG_ALLOWED: one or more Telegram accounts (numeric ids or @usernames, comma-separated).
+        # Who may use it: TG_ALLOWED (numeric ids or @usernames, comma-separated; optional) plus
+        # the accounts paired with the QR code (people.json, re-read when it changes).
         self.allowed_raw = [x.strip().lstrip("@") for x in env("TG_ALLOWED").split(",") if x.strip()]
-        self.allowed: set[int] = set()  # filled in after login (usernames are looked up)
+        self.env_allowed: set[int] = set()  # TG_ALLOWED, looked up after login
+        self.paired: dict[int, dict] = {}
+        self.allowed: set[int] = set()      # both together (the same set object all the time)
+        self.names: dict[int, str] = {}
+        self.usernames: dict[int, str] = {}
+        self._people_mtime: float | None = None
+        self.guard = people.Guard()          # 5 wrong codes = that account is ignored
+        self.hinted: set[int] = set()        # strangers told how to connect (once each)
+        self.me = None
         self.owner = 0                   # who the PC is talking to now (one person at a time)
         self._busy_since = 0.0           # a request is being worked on for self.owner
         self.client = self.calls = self.video = None
@@ -222,6 +237,72 @@ class HomePC:
     async def say(self, text: str) -> None:
         for i in range(0, max(1, len(text)), 4000):  # Telegram's limit is 4096 characters a message
             await self.client.send_message(self.owner, text[i:i + 4000] or "Done.")
+
+    # ------------------------------------------------------- who may use it ---
+    def may_use(self, uid: int) -> bool:
+        self._refresh_allowed()
+        return uid in self.allowed
+
+    def _refresh_allowed(self) -> None:
+        """Re-read people.json when it changed (a new pairing, or Remove in the PC window)."""
+        try:
+            mtime = people.PEOPLE.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        if mtime == self._people_mtime:
+            return
+        self._people_mtime = mtime
+        self.paired = people.paired()
+        self.allowed.clear()
+        self.allowed.update(self.env_allowed | set(self.paired))
+        if self.me:
+            self.allowed.discard(self.me.id)
+
+    def _write_live(self) -> None:
+        """Tell the PC window that Telegram is on, the Home PC's name, and who may use it."""
+        self._refresh_allowed()
+        listed = []
+        for uid in sorted(self.allowed):
+            p = self.paired.get(uid) or {}
+            listed.append({"id": uid, "name": p.get("name") or self.names.get(uid) or str(uid),
+                           "username": p.get("username") or self.usernames.get(uid, ""),
+                           "paired": uid in self.paired and uid not in self.env_allowed})
+        try:
+            people.write_live(self.me.first_name or "Home PC", self.me.username or "", listed)
+        except OSError:
+            log.exception("live.json")
+
+    async def _keep_live(self) -> None:
+        while True:
+            self._write_live()
+            await asyncio.sleep(20)
+
+    async def on_stranger(self, message) -> None:
+        """Someone who isn't allowed (yet) wrote. The right code (from the QR) connects them."""
+        user, text = message.from_user, message.text or ""
+        uid = user.id
+        if self.guard.blocked(uid):
+            return  # too many wrong codes: ignored until HomeCall starts again
+        if self.code and people.is_pairing_code(text, self.code):
+            name = " ".join(x for x in (user.first_name, user.last_name) if x) or user.username or str(uid)
+            people.add(uid, name, user.username or "")
+            self._refresh_allowed()
+            self.names[uid] = name
+            try:
+                await self.client.add_contact(uid, first_name=name)  # Telegram hides calls from strangers
+            except Exception:  # noqa: BLE001
+                pass
+            log.info("Paired a new Telegram account (%s)", uid)
+            self._write_live()
+            await self.client.send_message(uid, CONNECTED.format(pc=self.me.first_name or "this PC"))
+        elif self.code and people.looks_like_a_code(text):
+            left = self.guard.miss(uid)
+            await self.client.send_message(uid, f"\u274c That's not the code on the PC. {left} tries left."
+                                           if left else "\U0001f512 Too many wrong codes.")
+        elif uid not in self.hinted:
+            self.hinted.add(uid)
+            await self.client.send_message(uid, HOW_TO_CONNECT if self.code else
+                                           "HomeCall isn't running on this PC right now.")
 
     # ------------------------------------------------------------ text chat ---
     async def on_phone_message(self, msg: dict) -> None:
@@ -549,22 +630,32 @@ class HomePC:
         from pytgcalls.types import ChatUpdate, Device, Direction, GroupCallParticipant
 
         api_id, api_hash = env("TG_API_ID"), env("TG_API_HASH")
-        if not (api_id and api_hash and self.allowed_raw):
-            sys.exit("Telegram: TG_API_ID, TG_API_HASH and TG_ALLOWED are missing in .env.")
+        if not (api_id and api_hash):
+            sys.exit("Telegram: TG_API_ID and TG_API_HASH are missing in .env.")
         self.client = Client("homepc", api_id=int(api_id), api_hash=api_hash, workdir=str(HERE))
         await self.client.start()  # the first time (--login): asks for the phone number and the code
-        me = await self.client.get_me()
-        for who in self.allowed_raw:
-            uid = int(who) if who.isdigit() else (await self.client.get_users(who)).id
-            self.allowed.add(uid)
-            self.owner = self.owner or uid  # the first one listed, until someone writes
+        me = self.me = await self.client.get_me()
         if login_only:
             print(f"Logged in as {me.first_name}. HomeCall's start.py now starts the Telegram part by itself.")
             await self.client.stop()
             return
-        if me.id in self.allowed:
+        for who in self.allowed_raw:
+            try:
+                user = await self.client.get_users(int(who) if who.isdigit() else who)
+            except Exception as e:  # noqa: BLE001
+                if not who.isdigit():
+                    print(f"TG_ALLOWED: can't find @{who} ({type(e).__name__}); skipped.", flush=True)
+                    continue
+                self.env_allowed.add(int(who))
+                continue
+            self.env_allowed.add(user.id)
+            self.names[user.id] = " ".join(x for x in (user.first_name, user.last_name) if x) or who
+            self.usernames[user.id] = user.username or ""
+        if me.id in self.env_allowed:
             sys.exit("TG_ALLOWED contains the Home PC account itself: put YOUR Telegram account in .env.")
-        for uid in self.allowed:
+        self._refresh_allowed()
+        self.owner = next(iter(self.env_allowed or self.allowed), 0)  # until someone writes
+        for uid in list(self.allowed):
             try:
                 await self.client.add_contact(uid, first_name="Owner")  # Telegram hides calls from strangers
             except Exception:  # noqa: BLE001
@@ -572,12 +663,24 @@ class HomePC:
         self.calls = PyTgCalls(self.client)
         await done(self.calls.start())
 
-        owner_only = pf.private & pf.user(list(self.allowed))
+        async def allowed_filter(_, __, message) -> bool:
+            return bool(message.from_user) and self.may_use(message.from_user.id)
+
+        allowed = pf.create(allowed_filter)  # checked on every message: pairing works without a restart
+        owner_only = pf.private & pf.incoming & allowed
 
         @self.client.on_message(owner_only & pf.text)
         async def text(_, message) -> None:
+            if self.code and people.is_pairing_code(message.text, self.code):
+                await message.reply("\u2705 You're already connected. Just write what you want done.")
+                return
             if await self._take_turn(message.from_user.id):
                 await self.on_text(message.text)
+
+        @self.client.on_message(pf.private & pf.incoming & ~allowed & pf.text)
+        async def stranger(_, message) -> None:
+            if message.from_user and not message.from_user.is_bot:
+                await self.on_stranger(message)
 
         @self.client.on_message(owner_only & (pf.voice | pf.audio))
         async def voice_note(_, message) -> None:
@@ -587,7 +690,7 @@ class HomePC:
         @self.calls.on_update(cf.chat_update(ChatUpdate.Status.INCOMING_CALL))
         async def incoming(_, update) -> None:
             """You called the Home PC: pick up (if that fails, it calls you back)."""
-            if update.chat_id not in self.allowed or self.call or self._starting:
+            if not self.may_use(update.chat_id) or self.call or self._starting:
                 return
             if await self._take_turn(update.chat_id):
                 await self.start_call(answer=True)
@@ -642,6 +745,7 @@ class HomePC:
                 log.info("TG chat notice %s %s", type(action).__name__, flags)
 
         asyncio.create_task(self.link.close_when_idle())
+        asyncio.create_task(self._keep_live())
         print(f"Telegram: {me.first_name} (@{me.username or '-'}) is on. Text it, or write \"call\".", flush=True)
         await asyncio.Event().wait()
 

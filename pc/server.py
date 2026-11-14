@@ -36,6 +36,7 @@ _load_dotenv()
 from pc import screen  # noqa: E402  (after .env so settings apply)
 from pc.brain.agent import Brain  # noqa: E402
 from pc.session import Session  # noqa: E402
+from pc.telegram import people as tg_people  # noqa: E402  (no Telegram libraries: just its files)
 from pc.voice.routes import router as voice_router  # noqa: E402
 
 PAIR_CODE = os.environ.get("HOMECALL_CODE") or f"{secrets.randbelow(10**6):06d}"
@@ -177,7 +178,15 @@ def pc_window_info(request: Request, recheck: int = 0) -> dict:
     return {"code": PAIR_CODE, "url": PUBLIC_URL, "in_call": door.in_call, "brain": names[brain],
             "no_url_reason": os.environ.get("HOMECALL_TUNNEL_NOTE", ""),
             "voice": bool(os.environ.get("ELEVENLABS_API_KEY") and os.environ.get("ELEVENLABS_AGENT_ID")),
-            "permissions": PERMISSIONS}
+            "permissions": PERMISSIONS,
+            "telegram": tg_people.live()}  # None when the Telegram part isn't running
+
+
+@app.post("/pc/telegram/forget/{uid}")
+def pc_window_forget(uid: int, request: Request) -> dict:
+    """The PC window's Remove button: that Telegram account can't use the PC any more."""
+    this_pc_only(request)
+    return {"ok": tg_people.remove(uid)}
 
 
 @app.post("/pc/fix/{key}")

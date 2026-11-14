@@ -6,23 +6,29 @@
 <title>HomeCall on this PC</title>
 <!-- The PC window (Owner: Server). Only this computer can open it: it shows the pairing code. -->
 <style>
-  :root { --bg:#0f1115; --card:#1a1d24; --text:#f2f4f8; --muted:#9aa3b2; --ok:#22c55e; --bad:#ef4444; --accent:#3b82f6; }
+  :root { --bg:#0f1115; --card:#1a1d24; --text:#f2f4f8; --muted:#9aa3b2; --ok:#22c55e; --bad:#ef4444; --accent:#3b82f6; --tg:#2aabee; }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--text); font:16px/1.45 -apple-system, system-ui, sans-serif;
          display:flex; justify-content:center; padding:32px 16px; }
   .wrap { width:100%; max-width:520px; }
   h1 { font-size:28px; margin:0 0 4px; }
+  h2 { font-size:19px; margin:0 0 10px; display:flex; align-items:center; gap:10px; }
+  h2 .grow { flex:1; }
   .muted { color:var(--muted); }
+  .small { font-size:14px; }
   .card { background:var(--card); border-radius:16px; padding:20px; margin-top:16px; }
-  #qr { background:#fff; padding:14px; border-radius:12px; width:max-content; margin:4px auto 12px; }
-  #qr img, #qr canvas { display:block; }
+  .qr { background:#fff; padding:14px; border-radius:12px; width:max-content; margin:4px auto 12px; }
+  .qr img, .qr canvas { display:block; }
   .code { font-size:40px; letter-spacing:6px; font-weight:700; text-align:center; margin:6px 0; }
   .url { text-align:center; word-break:break-all; font-size:14px; }
+  ol.steps { margin:4px 0 12px; padding-left:22px; }
+  ol.steps li { margin:3px 0; }
   .row { display:flex; align-items:center; gap:10px; padding:8px 0; border-top:1px solid #262a33; }
   .row:first-child { border-top:0; }
   .dot { width:12px; height:12px; border-radius:50%; flex:none; background:var(--muted); }
   .dot.ok { background:var(--ok); } .dot.bad { background:var(--bad); }
   .row .name { flex:1; }
+  .tg-badge { background:var(--tg); color:#fff; border-radius:8px; padding:1px 8px; font-size:13px; font-weight:600; }
   button { font:inherit; padding:6px 14px; border:0; border-radius:10px; background:var(--accent); color:#fff; cursor:pointer; }
   button.quiet { background:#2a2f3a; }
   .hidden { display:none; }
@@ -33,11 +39,29 @@
   <h1>HomeCall is on</h1>
   <div class="muted">Keep this computer on. Close the HomeCall window to stop it.</div>
 
+  <!-- Shown when the Telegram part runs (pc/telegram): the main way to use HomeCall. -->
+  <div class="card hidden" id="tg">
+    <h2><span class="grow">Connect your Telegram</span><span class="tg-badge">Telegram</span></h2>
+    <div id="tgQr" class="qr"></div>
+    <ol class="steps" id="tgSteps">
+      <li>Scan with your phone's camera.</li>
+      <li>Telegram opens the chat with <b id="tgName">the Home PC</b>, the code already typed.</li>
+      <li>Tap <b>Send</b>. It answers "✅ Connected".</li>
+    </ol>
+    <div class="muted small" id="tgManual"></div>
+    <div id="tgPeople" style="margin-top:12px"></div>
+  </div>
+
+  <!-- The web app (no Telegram needed): folded away when Telegram is on. -->
   <div class="card" id="pair">
-    <div id="qr"></div>
-    <div id="qrText" class="muted" style="text-align:center">Scan with your phone's camera, then choose Voice call or Type.</div>
-    <div class="code" id="code">------</div>
-    <div class="url muted" id="url"></div>
+    <h2 id="webHead" class="hidden"><span class="grow">Or use the web app</span>
+      <button class="quiet" id="webToggle">Show</button></h2>
+    <div id="webBody">
+      <div id="qr" class="qr"></div>
+      <div id="qrText" class="muted" style="text-align:center">Scan with your phone's camera, then choose Voice call or Type.</div>
+      <div class="code" id="code">------</div>
+      <div class="url muted" id="url"></div>
+    </div>
   </div>
 
   <div class="card">
@@ -45,6 +69,7 @@
     <div id="perms"></div>
     <div class="row"><span class="dot ok"></span><span class="name" id="brain">AI</span></div>
     <div class="row"><span class="dot" id="voiceDot"></span><span class="name" id="voice">Voice</span></div>
+    <div class="row"><span class="dot" id="tgDot"></span><span class="name" id="tgRow">Telegram</span></div>
     <div class="row"><span class="name muted">Something not green?</span><button class="quiet" id="recheck">Check again</button></div>
   </div>
 </div>
@@ -52,7 +77,18 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
   const $ = (id) => document.getElementById(id);
-  let shownLink = null;
+  const shown = {};          // what each QR shows now (redrawn only when it changes)
+  let webOpen = false;       // the web-app card, when Telegram is on
+
+  function drawQr(el, text) {
+    if (shown[el.id] === text) return true;
+    shown[el.id] = text;
+    el.innerHTML = "";
+    if (!window.QRCode) { el.classList.add("hidden"); return false; }
+    el.classList.remove("hidden");
+    new QRCode(el, { text, width: 240, height: 240, correctLevel: QRCode.CorrectLevel.M });
+    return true;
+  }
 
   function showPairing(info) {
     $("code").textContent = info.code.slice(0, 3) + " " + info.code.slice(3);
@@ -65,16 +101,60 @@
       return;
     }
     // The phone page reads the code from after the "#": it never goes to any server.
-    const link = info.url + "/#code=" + info.code;
     $("url").textContent = info.url;
-    if (link === shownLink) return;
-    shownLink = link;
-    $("qr").innerHTML = "";
-    if (window.QRCode) {
-      new QRCode($("qr"), { text: link, width: 240, height: 240, correctLevel: QRCode.CorrectLevel.M });
-    } else {
-      $("qr").classList.add("hidden");
+    if (!drawQr($("qr"), info.url + "/#code=" + info.code)) {
       $("qrText").textContent = "The QR code didn't load. On your phone, open the address below and type the code.";
+    }
+  }
+
+  function showTelegram(info) {
+    const tg = info.telegram;
+    $("tg").classList.toggle("hidden", !tg);
+    $("webHead").classList.toggle("hidden", !tg);
+    $("webBody").classList.toggle("hidden", !!tg && !webOpen);
+    $("webToggle").textContent = webOpen ? "Hide" : "Show";
+    $("tgDot").className = "dot" + (tg ? " ok" : "");
+    $("tgRow").textContent = tg ? "Telegram: on (" + (tg.name || "Home PC") + ")" : "Telegram: off";
+    if (!tg) return;
+    const message = "connect " + info.code;
+    $("tgName").textContent = tg.name || "the Home PC";
+    if (tg.username) {
+      // Telegram's own link: opens the chat with the message typed in; you tap Send.
+      drawQr($("tgQr"), "https://t.me/" + tg.username + "?text=" + encodeURIComponent(message));
+      $("tgSteps").classList.remove("hidden");
+      $("tgManual").textContent = "No camera? In Telegram, write \"" + message + "\" to @" + tg.username + ".";
+    } else {
+      $("tgQr").classList.add("hidden");
+      $("tgSteps").classList.add("hidden");
+      $("tgManual").textContent = "The Home PC's Telegram account has no username yet, so there's no QR. " +
+        "Give it one (Telegram > Settings > Username), or write \"" + message + "\" to it.";
+    }
+    // Who may use it. Names come from Telegram: always as text, never as HTML.
+    const list = $("tgPeople");
+    list.innerHTML = "";
+    const head = document.createElement("div");
+    head.className = "muted small";
+    head.textContent = tg.people.length ? "Can use this PC in Telegram:" : "Nobody connected yet.";
+    list.append(head);
+    for (const p of tg.people) {
+      const row = document.createElement("div"); row.className = "row";
+      const dot = document.createElement("span"); dot.className = "dot ok";
+      const name = document.createElement("span"); name.className = "name";
+      name.textContent = p.name + (p.username ? " (@" + p.username + ")" : "");
+      row.append(dot, name);
+      if (p.paired) {
+        const forget = document.createElement("button"); forget.className = "quiet"; forget.textContent = "Remove";
+        forget.onclick = async () => {
+          if (!confirm("Remove " + p.name + "? They can't use this PC any more.")) return;
+          await fetch("/pc/telegram/forget/" + encodeURIComponent(p.id), { method: "POST" });
+          refresh(false);
+        };
+        row.append(forget);
+      } else {
+        const note = document.createElement("span"); note.className = "muted small"; note.textContent = "in .env";
+        row.append(note);
+      }
+      list.append(row);
     }
   }
 
@@ -104,10 +184,11 @@
       const r = await fetch("/pc/info" + (recheck ? "?recheck=1" : ""));
       if (!r.ok) return;
       const info = await r.json();
-      showPairing(info); showStatus(info);
+      showPairing(info); showTelegram(info); showStatus(info);
     } catch (_) { $("phone").textContent = "HomeCall stopped. Start it again."; $("phoneDot").className = "dot bad"; }
   }
 
+  $("webToggle").onclick = () => { webOpen = !webOpen; refresh(false); };
   $("recheck").onclick = () => refresh(true);
   refresh(false);
   setInterval(() => refresh(false), 2000);

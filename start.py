@@ -309,7 +309,7 @@ LOG = ROOT / "homecall.log"  # the server's log (gitignored: it holds the pairin
 def start_telegram(code: str) -> tuple[subprocess.Popen | None, str]:
     """The PC's own Telegram account (pc/telegram/home_pc.py): text it, or write "call" and it calls you."""
     env = read_env()
-    if not all(env.get(k) for k in ("TG_API_ID", "TG_API_HASH", "TG_ALLOWED")):
+    if not all(env.get(k) for k in ("TG_API_ID", "TG_API_HASH")):  # TG_ALLOWED is optional: the QR pairs you
         return None, "off (no Home PC Telegram account set up)"
     py = ROOT / ".venv-tgcall" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
     if not py.exists():
@@ -321,7 +321,8 @@ def start_telegram(code: str) -> tuple[subprocess.Popen | None, str]:
     proc = subprocess.Popen([str(py), "-m", "pc.telegram.home_pc"], cwd=ROOT, stdout=out, stderr=subprocess.STDOUT,
                             env=dict(os.environ, HOMECALL_CODE=code, HOMECALL_PORT=str(PORT),
                                      PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8"))
-    return proc, "on: text the Home PC account in Telegram, or write it \"call\" (log: homecall-telegram.log)"
+    return proc, ("on: scan the Telegram QR in the PC window once, then text the Home PC account "
+                  "or write it \"call\" (log: homecall-telegram.log)")
 
 
 def start_server(url: str | None, tunnel_note: str = "") -> tuple[subprocess.Popen, str | None]:
