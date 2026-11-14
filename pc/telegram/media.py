@@ -18,11 +18,11 @@ class ScreenVideo:
     voice calls), so only ONE program takes screenshots: on a Mac, two programs capturing at the
     same time can lock up screenshots for everyone."""
 
-    def __init__(self, fetch_jpeg) -> None:
+    def __init__(self, fetch_jpeg, width: int = 720) -> None:
         self._fetch = fetch_jpeg               # () -> JPEG bytes of the screen
         w, h = self._picture().size
-        self.width = w - w % 2
-        self.height = h - h % 2
+        self.width = min(width, w) // 2 * 2    # smaller video = less upload, fewer frozen pictures
+        self.height = int(self.width * h / w) // 2 * 2
 
     def _picture(self):
         import io
@@ -58,15 +58,15 @@ def call_to_agent(pcm: bytes, rate_out: int = 16000) -> bytes:
     return np.clip(_resample(mono, CALL_RATE, rate_out), -32768, 32767).astype("<i2").tobytes()
 
 
-def agent_to_call(pcm: bytes, rate_in: int = 16000) -> list[bytes]:
-    """The agent's voice (mono) -> 10 ms call frames (48 kHz stereo)."""
+def agent_to_call(pcm: bytes, rate_in: int = 16000, carry: bytes = b"") -> tuple[list[bytes], bytes]:
+    """The agent's voice (mono) -> 10 ms call frames (48 kHz stereo), plus what's left over (less
+    than one frame), to put in front of the next piece instead of padding it with silence (clicks)."""
     mono = np.frombuffer(pcm[: len(pcm) // 2 * 2], dtype="<i2").astype(np.float32)
     up = _resample(mono, rate_in, CALL_RATE)
-    stereo = np.clip(np.repeat(up, 2), -32768, 32767).astype("<i2").tobytes()
-    frames = [stereo[i:i + CALL_FRAME_BYTES] for i in range(0, len(stereo), CALL_FRAME_BYTES)]
-    if frames and len(frames[-1]) < CALL_FRAME_BYTES:
-        frames[-1] += b"\0" * (CALL_FRAME_BYTES - len(frames[-1]))
-    return frames
+    stereo = carry + np.clip(np.repeat(up, 2), -32768, 32767).astype("<i2").tobytes()
+    full = len(stereo) // CALL_FRAME_BYTES * CALL_FRAME_BYTES
+    frames = [stereo[i:i + CALL_FRAME_BYTES] for i in range(0, full, CALL_FRAME_BYTES)]
+    return frames, stereo[full:]
 
 
 def rate_of(audio_format: str, default: int = 16000) -> int:

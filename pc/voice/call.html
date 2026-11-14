@@ -135,7 +135,8 @@
     filesTimer = setInterval(() => { pollFiles(); pollNews(); }, 1500);
     $("state").textContent = "Starting the voice...";
     try {
-      await navigator.mediaDevices.getUserMedia({ audio: true });  // ask for the mic
+      const mic = await navigator.mediaDevices.getUserMedia({ audio: true });  // ask for the mic
+      mic.getTracks().forEach((t) => t.stop());  // only asking: the voice library opens its own (mic light off)
     } catch (e) {
       $("state").textContent = "No microphone: you can watch the screen, but not talk.";
       $("err").textContent = "Microphone blocked. Allow it (Safari: aA -> Website Settings -> Microphone), or open this page in Safari, not inside Instagram/Discord. Then tap Hang up and call again.";

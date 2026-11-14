@@ -10,6 +10,7 @@ if not exist ".venv\Scripts\python.exe" (
   py -3 -m venv .venv 2>nul || python -m venv .venv
 )
 if not exist ".venv\Scripts\python.exe" goto nopython
+".venv\Scripts\python.exe" -c "import sys; sys.exit(sys.version_info < (3, 11))" || goto nopython
 
 echo Checking HomeCall's Python packages...
 ".venv\Scripts\python.exe" -m pip install -q --disable-pip-version-check -r requirements.txt
