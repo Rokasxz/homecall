@@ -191,3 +191,11 @@ Yes/No are unchanged.
 | 22 | Design: the Telegram route needs no pairing code; the owner's Telegram account is the key, and Yes/No questions go to that same chat (no second factor). Anyone with a logged-in Telegram session of the owner controls the PC. | Lead | Note for the pitch / README |
 
 Not covered by automated tests: pc/telegram needs its own venv (.venv-tgcall).
+
+**Update after #66–#68:** finding #20 (Telegram "yes" by prefix) is **fixed**: only
+the first whole word counts, and anything that isn't a clear yes is a No.
+Several Telegram people (#68) are safe: while a Yes/No is waiting nobody else can
+take over, so one person can't answer another's question. **Demo mode** (#66,
+`HOMECALL_DEMO=1` / `start.py --demo`) gives the AI only a fresh copy of
+`demo/desktop`, so real files can't be listed, sent or deleted during the demo.
+Use it for the video. main: 243 passed.
