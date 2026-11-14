@@ -199,3 +199,16 @@ take over, so one person can't answer another's question. **Demo mode** (#66,
 `HOMECALL_DEMO=1` / `start.py --demo`) gives the AI only a fresh copy of
 `demo/desktop`, so real files can't be listed, sent or deleted during the demo.
 Use it for the video. main: 243 passed.
+
+---
+
+# Safety pass #9 — Telegram QR pairing (#71)
+
+Good: only exactly the current code pairs (a message full of numbers doesn't count),
+5 wrong codes per account, 20 in all = pairing off until the next start;
+`people.json` / `live.json` are gitignored; the PC window's Remove button only
+answers on the PC. `tests/test_telegram_people.py` (17 tests) guards these rules.
+
+| # | Finding | Who | Status |
+|---|---|---|---|
+| 23 | **Pairing is permanent and nobody is asked.** Anyone who sees the Telegram QR / code once (a projector at the demo, the demo video, a screenshot) can pair while HomeCall runs and keeps access after every restart, until someone notices them in the PC window. | Lead (Telegram) | New, medium. For the demo/video: hide or blur the QR. |
