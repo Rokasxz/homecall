@@ -60,14 +60,17 @@ Give the PC its own Telegram account ("Home PC"). Then, from your normal Telegra
   arrive in the chat, Yes/No questions come as a message, voice notes work.
 - **Write "call"**: it calls you as a Telegram **video call** with its screen as the video, and you talk to
   the same AI. (Your phone may show the call as missed: tap the camera icon on the call message to join.)
-- Only the accounts you allow can use it (`TG_ALLOWED=@you,@friend`), one person at a time.
+- **Connect with a QR code:** the PC window shows a Telegram QR. Scan it with your phone: Telegram
+  opens the Home PC chat with the PC's one-time code typed in, you tap **Send**, it answers
+  "✅ Connected". From then on it answers you, also after restarts. Only connected accounts can use
+  it (5 wrong codes = that account is ignored), one person at a time; **Remove** someone in the PC window.
 
 Set it up once:
 1. A Telegram account for the PC, on a spare SIM (not your own number).
 2. https://my.telegram.org -> API development tools -> create an app; in `.env`:
-   `TG_API_ID=...`, `TG_API_HASH=...` and `TG_ALLOWED=@your_username` (YOUR account, the only
-   one it answers; not the PC's). Several people: `TG_ALLOWED=@you,@friend`; it talks to one at a
-   time, the others get "busy", and each person gets a fresh conversation.
+   `TG_API_ID=...` and `TG_API_HASH=...`. (Optional: `TG_ALLOWED=@you,@friend` lets those accounts
+   in without the QR.) Several people: it talks to one at a time, the others get "busy", and each
+   person gets a fresh conversation.
 3. Its own Python setup, then log the PC account in (type its phone number and the code):
    ```
    python -m venv .venv-tgcall
@@ -76,6 +79,7 @@ Set it up once:
    ```
    (Windows: `.venv-tgcall\Scripts\pip` and `.venv-tgcall\Scripts\python`.)
 4. Start HomeCall as usual: it starts the Telegram part too (`Telegram: on` in the summary).
+5. In the PC window, scan the **Telegram QR** with your phone and tap **Send**: "✅ Connected".
 
 Telegram calls need the PC on a network that lets them through: the venue Wi-Fi blocks them,
 use the phone's hotspot. How it works: `pc/telegram/home_pc.py`.

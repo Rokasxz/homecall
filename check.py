@@ -165,6 +165,49 @@ def check_phone():
         (ok if p.exists() else fail)(f"phone/{f} exists")
 
 
+def check_telegram_pairing():
+    section("Telegram pairing (the QR in the PC window)")
+    import tempfile
+    try:
+        from pc.telegram import people
+    except Exception as e:  # noqa: BLE001
+        fail("pc/telegram/people.py imports", f"{type(e).__name__}: {e}")
+        return
+    code = "731676"
+    right = all(people.is_pairing_code(t, code) for t in ("connect 731676", "731676", "731 676", " Connect 731-676 "))
+    wrong = not any(people.is_pairing_code(t, code) for t in
+                    ("connect 731677", "connect", "", "hello", "731676731676", "0123456789731676", "connect 731676 now"))
+    (ok if right else fail)("the code from the QR connects (\"connect 731676\", \"731 676\")")
+    (ok if wrong else fail)("a wrong code, or a message full of numbers, doesn't")
+    guard = people.Guard()
+    lefts = [guard.miss(1) for _ in range(5)]
+    (ok if lefts == [4, 3, 2, 1, 0] and guard.blocked(1) and not guard.blocked(2) else fail)(
+        "5 wrong codes and that account is ignored", str(lefts))
+    for uid in range(100, 115):
+        guard.miss(uid)
+    (ok if guard.blocked(999) else fail)("20 wrong codes in all and pairing stops until the next start")
+    with tempfile.TemporaryDirectory() as tmp:
+        ppl, live = Path(tmp) / "people.json", Path(tmp) / "live.json"
+        people.add(42, "Fc", "fc_user", path=ppl)
+        people.add(43, "Friend", path=ppl)
+        remembered = set(people.paired(ppl)) == {42, 43}
+        people.write_live("HOMECALL", "homepc_user", [{"id": 42, "name": "Fc", "paired": True},
+                                                      {"id": 43, "name": "Friend", "paired": True}], path=live)
+        removed = people.remove(42, path=ppl, live_path=live) and not people.remove(42, path=ppl, live_path=live)
+        shown = people.live(live) or {}
+        (ok if remembered else fail)("a connected account is remembered (people.json)")
+        (ok if removed and set(people.paired(ppl)) == {43} and [p["id"] for p in shown.get("people", [])] == [43]
+         else fail)("Remove forgets it (and the PC window shows it at once)")
+        (ok if shown.get("username") == "homepc_user" else fail)("the PC window learns the Home PC's username")
+        data = json.loads(live.read_text(encoding="utf-8"))
+        data["seen"] = time.time() - 120
+        live.write_text(json.dumps(data), encoding="utf-8")
+        (ok if people.live(live) is None else fail)("Telegram counts as off when its part stopped (no fresh live.json)")
+        (Path(tmp) / "bad.json").write_text("{not json", encoding="utf-8")
+        (ok if people.paired(Path(tmp) / "bad.json") == {} and people.live(Path(tmp) / "none.json") is None
+         else fail)("a broken or missing file doesn't crash it")
+
+
 def free_port():
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -188,6 +231,13 @@ async def fake_call(port, code):
         except urllib.error.HTTPError as e:
             refused += e.code == 404
     (ok if refused == 3 else fail)("PC window is refused through the tunnel (it shows the code)", f"{refused}/3")
+    (ok if "telegram" in info else fail)("PC window says whether Telegram is on")
+    try:
+        urllib.request.urlopen(urllib.request.Request(base + "/pc/telegram/forget/1", method="POST",
+                                                      headers={"Cf-Connecting-Ip": "1.2.3.4"}))
+        fail("Telegram Remove button is refused through the tunnel")
+    except urllib.error.HTTPError as e:
+        (ok if e.code == 404 else fail)("Telegram Remove button is refused through the tunnel", str(e.code))
     async with websockets.connect(f"ws://127.0.0.1:{port}/ws") as ws:
         await ws.send(json.dumps({"type": "hello", "code": "000000"}))
         msg = json.loads(await asyncio.wait_for(ws.recv(), 5))
@@ -252,6 +302,7 @@ def main():
     check_brain()
     check_voice()
     check_phone()
+    check_telegram_pairing()
     if "FAIL" in RESULTS:
         print("\nSkipping the end-to-end call until the FAILs above are fixed.")
     else:
